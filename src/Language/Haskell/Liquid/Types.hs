@@ -371,7 +371,7 @@ data TyConP = TyConP { freeTyVarsTy :: ![RTyVar]
                      , freeLabelTy  :: ![Symbol]
                      , varianceTs   :: !VarianceInfo
                      , variancePs   :: !VarianceInfo 
-                     , sizeFun      :: !(Maybe (Symbol -> Expr))
+                     , sizeMeasure  :: !(Maybe LocSymbol)
                      } deriving (Data, Typeable)
 
 data DataConP = DataConP { dc_loc     :: !SourcePos
@@ -803,7 +803,7 @@ data DataDecl   = D { tycName   :: LocSymbol
                                 -- ^ [DataCon, [(fieldName, fieldType)]]
                     , tycSrcPos :: !SourcePos
                                 -- ^ Source Position
-                    , tycSFun   :: (Maybe (Symbol -> Expr))
+                    , tycSizeMs :: (Maybe LocSymbol)
                                 -- ^ Measure that should decrease in recursive calls
                     }
      --              deriving (Show) 
@@ -830,6 +830,7 @@ data RTAlias tv ty
         , rtBody  :: ty  
         , rtPos   :: SourcePos 
         }
+        deriving Generic
 
 mapRTAVars f rt = rt { rtTArgs = f <$> rtTArgs rt
                      , rtVArgs = f <$> rtVArgs rt
@@ -1598,7 +1599,7 @@ data Def ctor
   , ctor    :: ctor 
   , binds   :: [Symbol]
   , body    :: Body
-  } deriving (Show, Data, Typeable)
+  } deriving (Show, Data, Typeable, Generic)
 deriving instance (Eq ctor) => Eq (Def ctor)
 
 -- MOVE TO TYPES
@@ -1606,7 +1607,7 @@ data Body
   = E Expr          -- ^ Measure Refinement: {v | v = e } 
   | P Pred          -- ^ Measure Refinement: {v | (? v) <=> p }
   | R Symbol Pred   -- ^ Measure Refinement: {v | p}
-  deriving (Show, Eq, Data, Typeable)
+  deriving (Show, Eq, Data, Typeable, Generic)
 
 instance Subable (Measure ty ctor) where
   syms (M _ _ es)      = concatMap syms es
@@ -1644,7 +1645,7 @@ data RClass ty
            , rcSupers  :: [ty]
            , rcTyVars  :: [Symbol]
            , rcMethods :: [(LocSymbol,ty)]
-           } deriving (Show)
+           } deriving (Show, Generic)
 
 instance Functor RClass where
   fmap f (RClass n ss tvs ms) = RClass n (fmap f ss) tvs (fmap (second f) ms)

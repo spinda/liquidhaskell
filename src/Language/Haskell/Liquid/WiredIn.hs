@@ -54,7 +54,7 @@ wiredTyDataCons = (concat tcs, mapSnd dummyLoc <$> concat dcs)
     l           = [listTyDataCons] ++ map tupleTyDataCons [2..maxArity]
 
 listTyDataCons :: ([(TyCon, TyConP)] , [(DataCon, DataConP)])
-listTyDataCons   = ( [(c, TyConP [(RTV tyv)] [p] [] [Covariant] [Covariant] (Just fsize))]
+listTyDataCons   = ( [(c, TyConP [(RTV tyv)] [p] [] [Covariant] [Covariant] (Just smeas))]
                    , [(nilDataCon, DataConP l0 [(RTV tyv)] [p] [] [] [] lt)
                    , (consDataCon, DataConP l0 [(RTV tyv)] [p] [] [] cargs  lt)])
     where
@@ -71,7 +71,7 @@ listTyDataCons   = ( [(c, TyConP [(RTV tyv)] [p] [] [Covariant] [Covariant] (Jus
       xt         = rVar tyv
       xst        = rApp c [RVar (RTV tyv) px] [RPropP [] $ pdVarReft p] mempty
       cargs      = [(xs, xst), (x, xt)]
-      fsize      = \x -> EApp (dummyLoc "len") [EVar x]
+      smeas      = dummyLoc "len"
 
 tupleTyDataCons :: Int -> ([(TyCon, TyConP)] , [(DataCon, DataConP)])
 tupleTyDataCons n = ( [(c, TyConP (RTV <$> tyvs) ps [] tyvarinfo pdvarinfo Nothing)]

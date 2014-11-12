@@ -1285,7 +1285,7 @@ makeConTypes' dcs vdcs = unzip <$> mapM (uncurry ofBDataDecl) (group dcs vdcs)
 
 
 ofBDataDecl :: Maybe DataDecl  -> (Maybe (LocSymbol, [Variance])) -> BareM ((TyCon, TyConP), [(DataCon, Located DataConP)])
-ofBDataDecl (Just (D tc as ps ls cts pos sfun)) maybe_invariance_info
+ofBDataDecl (Just (D tc as ps ls cts pos smeas)) maybe_invariance_info
   = do πs         <- mapM ofBPVar ps
        tc'        <- lookupGhcTyCon tc
        cts'       <- mapM (ofBDataCon lc tc' αs ps ls πs) cts
@@ -1297,7 +1297,7 @@ ofBDataDecl (Just (D tc as ps ls cts pos sfun)) maybe_invariance_info
        let contr   = neutral ++ [i | (i, b)<- varInfo, not b, i >=0]
        let defaultPs =  traceShow ("defaultPs for " ++ show tc ++ "\n\n" ++ show varInfo ++ "\n" ++ show tys ) $ varSignToVariance varInfo <$> [0 .. (length πs)]  
        let (tvarinfo, pvarinfo) = f defaultPs
-       return ((tc', TyConP αs πs ls tvarinfo pvarinfo sfun), (mapSnd (Loc lc) <$> cts'))
+       return ((tc', TyConP αs πs ls tvarinfo pvarinfo smeas), (mapSnd (Loc lc) <$> cts'))
     where 
        αs             = RTV . symbolTyVar <$> as
        n              = length αs

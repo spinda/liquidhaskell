@@ -64,9 +64,10 @@ import Debug.Trace (trace)
 makeTyConInfo = hashMapMapWithKey mkRTyCon . M.fromList
 
 mkRTyCon ::  TC.TyCon -> TyConP -> RTyCon
-mkRTyCon tc (TyConP αs' ps ls tyvariance predvariance size) = RTyCon tc pvs' (mkTyConInfo tc tyvariance predvariance size)
-  where τs   = [rVar α :: RSort |  α <- TC.tyConTyVars tc]
-        pvs' = subts (zip αs' τs) <$> ps
+mkRTyCon tc (TyConP αs' ps ls tyvariance predvariance size) = RTyCon tc pvs' (mkTyConInfo tc tyvariance predvariance (app <$> size))
+  where τs      = [rVar α :: RSort |  α <- TC.tyConTyVars tc]
+        pvs'    = subts (zip αs' τs) <$> ps
+        app s x = EApp s [EVar x]
 
 dataConPSpecType :: DataCon -> DataConP -> SpecType 
 dataConPSpecType dc (DataConP _ vs ps ls cs yts rt) = mkArrow vs ps ls ts' rt'
