@@ -38,6 +38,10 @@ module Language.Haskell.Liquid.Types (
   -- * Refined Type Constructors 
   , RTyCon (RTyCon, rtc_tc, rtc_info)
   , TyConInfo(..), defaultTyConInfo
+  , SizeFn(..)
+  , appSizeFn
+  , rTyConInfo
+  , rTyConTc
   , rTyConPVs 
   , rTyConPropVs
   , isClassRTyCon
@@ -181,6 +185,10 @@ module Language.Haskell.Liquid.Types (
   , isSVar
   , getStrata
   , makeDivType, makeFinType
+
+  -- * Intermediate Module Information
+  , Intr(..)
+  , BTyCon(..)
 
   )
   where
@@ -545,9 +553,16 @@ instance Default TyConInfo where
 data TyConInfo = TyConInfo
   { varianceTyArgs  :: !VarianceInfo             -- ^ variance info for type variables
   , variancePsArgs  :: !VarianceInfo             -- ^ variance info for predicate variables
-  , sizeFunction    :: !(Maybe (Symbol -> Expr)) -- ^ logical function that computes the size of the structure
+  , sizeFunction    :: !(Maybe SizeFn)           -- ^ logical function that computes the size of the structure
   } deriving (Generic, Data, Typeable)
 
+data SizeFn = NumericSize
+            | MeasureSize LocSymbol
+              deriving (Eq, Show, Generic, Data, Typeable)
+
+appSizeFn :: SizeFn -> Symbol -> Expr
+appSizeFn NumericSize     x = EVar x
+appSizeFn (MeasureSize s) x = EApp (symbol <$> s) [EVar x]
 
 instance Show TyConInfo where 
   show (TyConInfo x y _) = show x ++ "\n" ++ show y
@@ -657,6 +672,7 @@ data Ref τ r t
   | RProp  {
       rf_args :: [(Symbol, τ)] 
     , rf_body :: t                 
+
     }                              -- ^ Abstract refinement associated with `RTyCon`
     
   | RHProp {
@@ -1770,3 +1786,36 @@ instance PPrint DataCon where
 
 instance Show DataCon where
   show = showpp
+
+-----------------------------------------------------------
+-- | Intermediate Module Information ----------------------
+-----------------------------------------------------------
+
+data Intr = Intr {
+    depends :: !(S.HashSet Symbol)              -- ^ Modules that this module imports (depends on)
+  , tyCons  :: !(M.HashMap Symbol BTyCon)       -- ^ Exported type constructors
+  , meaSigs :: !(M.HashMap Symbol BareType)     -- ^ Signatures of measures defined within this module
+  , fnSigs  :: !(M.HashMap Symbol BareType)     -- ^ Signatures of exported functions
+  } deriving Generic
+
+-- XXX: Merge BTyCon with RTyCon?             
+
+data BTyCon = BTyCon 
+  { btc_tc    :: !Symbol           -- ^ Type Constructor
+  , btc_pvars :: ![BPVar]          -- ^ Predicate Parameters
+  , btc_info  :: !TyConInfo        -- ^ TyConInfo
+  }
+  deriving Generic
+
+instance Eq BTyCon where
+  x == y = btc_tc x == btc_tc y
+
+instance Fixpoint BTyCon where
+  toFix (BTyCon c _ _) = pprint c
+
+instance PPrint BTyCon where
+  pprint = toFix
+
+instance Show BTyCon where
+  show = showpp  
+

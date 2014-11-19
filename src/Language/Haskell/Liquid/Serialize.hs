@@ -23,7 +23,8 @@ import Text.Parsec.Pos                          (SourcePos, sourceName, sourceLi
 import Language.Fixpoint.Names as Fx            (Symbol)
 import Language.Fixpoint.Types as Fx
 
-import qualified Language.Haskell.Liquid.Types   as Ty
+import qualified Language.Haskell.Liquid.Types    as Ty
+import qualified Language.Haskell.Liquid.Variance as Vr
 
 instance (Eq k, Hashable k, Serialize k, Serialize v) => Serialize (M.HashMap k v) where
   put = put . M.toList
@@ -75,3 +76,12 @@ instance Serialize Ty.Oblig
 instance Serialize Ty.Stratum
 
 instance Serialize Ty.Body
+
+instance Serialize Ty.BTyCon
+instance Serialize Ty.TyConInfo
+instance Serialize Ty.SizeFn
+
+instance Serialize Ty.Intr
+
+instance Serialize Vr.Variance
+

@@ -22,7 +22,7 @@ import Panic
 import GHC hiding (Target)
 import DriverPhases (Phase(..))
 import DriverPipeline (compileFile)
-import Text.PrettyPrint.HughesPJ
+import Text.PrettyPrint.HughesPJ hiding (first)
 import HscTypes hiding (Target)
 import TidyPgm      (tidyProgram)
 import Literal
@@ -30,6 +30,7 @@ import CoreSyn
 
 import Var
 import Name         (getSrcSpan)
+import NameSet      (nameSetToList)
 import CoreMonad    (liftIO)
 import DataCon
 import qualified TyCon as TC
@@ -48,7 +49,7 @@ import System.FilePath ( replaceExtension
                        , normalise)
 
 import DynFlags
-import Control.Arrow (second)
+import Control.Arrow (first, second, (***))
 import Control.Monad (filterM, foldM, zipWithM, when, forM, forM_, liftM, (<=<))
 import Control.DeepSeq
 import Control.Applicative  hiding (empty)
@@ -58,6 +59,7 @@ import Data.Maybe (fromMaybe, catMaybes, maybeToList)
 import qualified Data.HashSet        as S
 import qualified Data.HashMap.Strict as M
 import qualified Data.Text           as T
+import qualified Data.ByteString     as BS
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 import System.Directory (removeFile, createDirectory, doesFileExist)
@@ -71,6 +73,7 @@ import Language.Haskell.Liquid.Bare
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
+import Language.Haskell.Liquid.Tidy (tidySpecType)
 
 import Language.Haskell.Liquid.CmdLine (withPragmas)
 import Language.Haskell.Liquid.Parse
@@ -80,6 +83,7 @@ import Language.Fixpoint.Names
 import Language.Fixpoint.Files
 
 import qualified Language.Haskell.Liquid.Measure as Ms
+import qualified Language.Haskell.Liquid.Serialize as Sr
 
 
 --------------------------------------------------------------------
@@ -122,7 +126,106 @@ getGhcInfo' cfg0 target
       (spec, imps, incs) <- moduleSpec cfg coreBinds (impVs ++ defVs) letVs name' modguts tgtSpec impSpecs'
       liftIO              $ whenLoud $ putStrLn $ "Module Imports: " ++ show imps
       hqualFiles         <- moduleHquals modguts paths target imps incs
+      liftIO              $ testIntrGen spec tgtSpec target
       return              $ GI hscEnv coreBinds derVs impVs letVs useVs hqualFiles imps incs spec 
+
+testIntrGen :: GhcSpec -> Ms.BareSpec -> FilePath -> IO ()
+testIntrGen ghcSpec tgtSpec target
+  = do putStrLn "================================================================================"
+       putStrLn "-- module imports/dependencies -------------------------------------------------"
+       putStrLn $ render $ pprintLongList $ S.toList $ depends intr
+       putStrLn "-- exported type constructors --------------------------------------------------"
+       putStrLn $ render $ pprintLongList $ M.toList $ tyCons intr
+       putStrLn "-- exported measure signatures -------------------------------------------------"
+       putStrLn $ render $ pprintLongList $ M.toList $ meaSigs intr
+       putStrLn "-- exported function signatures (and data constructors) ------------------------"
+       putStrLn $ render $ pprintLongList $ M.toList $ fnSigs intr
+       putStrLn "================================================================================"
+
+       let lqhiFile = replaceExtension target "lqhi"
+       BS.writeFile lqhiFile $ Sr.encode intr
+
+  where intr = Intr { depends = S.fromList $ Ms.imports tgtSpec -- FIXME: Doesn't work?
+                    , tyCons  = M.fromList expTyCons
+                    , meaSigs = M.fromList expMeaSigs
+                    , fnSigs  = M.fromList expFnSigs
+                    }
+
+        expHsSyms
+          = S.fromList
+            $ map qualifiedNameSymbol
+            $ nameSetToList
+            $ exports ghcSpec
+        expMeaSyms
+          = S.fromList
+            $ map (val.name)
+            $ Ms.measures tgtSpec
+
+        expTyCons
+          = filter ((`S.member` expHsSyms).fst)
+            $ map (symbol *** deflateRTyCon)
+            $ M.toList
+            $ tyconEnv ghcSpec
+        expMeaSigs
+          = filter ((`S.member` expMeaSyms).fst)
+            $ map (second (deflateSpecType.val))
+            $ meas ghcSpec
+        expFnSigs
+          = filter ((`S.member` expHsSyms).fst)
+            $ map (qualifiedNameSymbol.varName *** deflateSpecType.val)
+            $ tySigs ghcSpec ++ ctors ghcSpec
+
+--------------------------------------------------------------------------------
+
+deflateRTyCon :: RTyCon -> BTyCon
+deflateRTyCon rtc
+  = BTyCon { btc_tc    = symbol $ rTyConTc rtc
+           , btc_pvars = map deflateRPVar $ rTyConPVs rtc
+           , btc_info  = rTyConInfo rtc
+           }
+
+deflateSpecType :: SpecType -> BareType
+deflateSpecType = deflateRRType . tidySpecType Full
+        
+deflateRRType :: RRType r -> BRType r
+deflateRRType (RVar tv r)             = RVar (symbol tv) r
+deflateRRType (RFun b i o r)          = RFun b (deflateRRType i) (deflateRRType o) r
+deflateRRType (RAllT tv ty)           = RAllT (symbol tv) (deflateRRType ty)
+deflateRRType (RAllP pv ty)           = RAllP (deflateRPVar pv) (deflateRRType ty)
+deflateRRType (RAllS b ty)            = RAllS b (deflateRRType ty)
+deflateRRType (RApp tyc args pargs r) = RApp (dummyLoc $ symbol $ rtc_tc tyc) (map deflateRRType args) (map deflateRTProp pargs) r
+deflateRRType (RAllE b arg ty)        = RAllE b (deflateRRType arg) (deflateRRType ty)
+deflateRRType (REx b arg ty)          = REx b (deflateRRType arg) (deflateRRType ty)
+deflateRRType (RExprArg expr)         = RExprArg expr
+deflateRRType (RAppTy arg res r)      = RAppTy (deflateRRType arg) (deflateRRType res) r
+deflateRRType (RRTy env r obl ty)     = RRTy (map (second deflateRRType) env) r obl (deflateRRType ty)
+deflateRRType (ROth s)                = ROth s
+deflateRRType (RHole r)               = RHole r
+
+deflateRPVar :: RPVar -> BPVar
+deflateRPVar pvar
+  = pvar { ptype = deflateRPVKind $ ptype pvar
+         , pargs = map defl $ pargs pvar
+         }
+  where defl (ty, s, expr) = (deflateRRType ty, s, expr)
+
+deflateRPVKind :: PVKind RSort -> PVKind BSort
+deflateRPVKind (PVProp ty) = PVProp $ deflateRRType ty
+deflateRPVKind PVHProp     = PVHProp
+
+deflateRTProp :: RTProp RTyCon RTyVar r -> RTProp LocSymbol Symbol r
+deflateRTProp (RPropP args r) = RPropP (map (second deflateRRType) args) r
+deflateRTProp (RProp args ty) = RProp (map (second deflateRRType) args) (deflateRRType ty)
+deflateRTProp (RHProp args w) = RHProp (map (second deflateRRType) args) (deflateWorld w)
+
+deflateWorld :: World (RRType r) -> World (BRType r)
+deflateWorld (World hs) = World $ map deflateHSeg hs
+
+deflateHSeg :: HSeg (RRType r) -> HSeg (BRType r)
+deflateHSeg (HBind addr ty) = HBind addr (deflateRRType ty)
+deflateHSeg (HVar pv)       = HVar pv
+
+--------------------------------------------------------------------------------
 
 derivedVars :: CoreProgram -> Maybe [DFunId] -> [Id]
 derivedVars cbs (Just fds) = concatMap (derivedVs cbs) fds

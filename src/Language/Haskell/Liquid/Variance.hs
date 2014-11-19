@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Language.Haskell.Liquid.Variance (
     Variance(..), VarianceInfo
@@ -9,5 +10,7 @@ import Data.Data
 
 import Data.Monoid
 
+import GHC.Generics
+
 type VarianceInfo = [Variance]
-data Variance = Invariant | Bivariant | Contravariant | Covariant deriving (Data, Typeable, Show)
+data Variance = Invariant | Bivariant | Contravariant | Covariant deriving (Data, Typeable, Generic, Show)

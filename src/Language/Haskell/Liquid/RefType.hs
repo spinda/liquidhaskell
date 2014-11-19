@@ -516,7 +516,7 @@ isNumeric tce c
        (M.lookup (rtc_tc c) tce) == intFTyCon
 
 addNumSizeFun c 
-  = c {rtc_info = (rtc_info c) {sizeFunction = Just EVar} }
+  = c {rtc_info = (rtc_info c) {sizeFunction = Just NumericSize} }
 
 
 generalize :: (RefTypable c tv r) => RType c tv r -> RType c tv r
@@ -994,14 +994,14 @@ mkDType xvs acc [(v, (x, t@(RApp c _ _ _)))]
   where tr     = uTop $ Reft (vv, [RConc $ pOr (r:acc)])
         r      = cmpLexRef xvs (v', vv, f)
         v'     = symbol v
-        Just f = sizeFunction $ rtc_info c
+        Just f = appSizeFn <$> sizeFunction (rtc_info c)
         vv     = "vvRec"
 
 mkDType xvs acc ((v, (x, t@(RApp c _ _ _))):vxts)
   = mkDType ((v', x, f):xvs) (r:acc) vxts
   where r      = cmpLexRef xvs  (v', x, f)
         v'     = symbol v
-        Just f = sizeFunction $ rtc_info c
+        Just f = appSizeFn <$> sizeFunction (rtc_info c)
 
 cmpLexRef vxs (v, x, g)
   = pAnd $  (PAtom Lt (g x) (g v)) : (PAtom Ge (g x) zero)
@@ -1026,7 +1026,7 @@ makeLexReft old acc (e:es) (e':es')
 
 -------------------------------------------------------------------------------
 
-mkTyConInfo :: TyCon -> VarianceInfo -> VarianceInfo -> (Maybe (Symbol -> Expr)) -> TyConInfo
+mkTyConInfo :: TyCon -> VarianceInfo -> VarianceInfo -> (Maybe SizeFn) -> TyConInfo
 
 mkTyConInfo c usertyvar userprvariance f        
   = TyConInfo (if null usertyvar then defaulttyvar else usertyvar) userprvariance f
