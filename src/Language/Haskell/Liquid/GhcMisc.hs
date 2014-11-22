@@ -28,7 +28,7 @@ import           Kind                         (superKind)
 import           NameSet                      (NameSet)
 import           SrcLoc                       (mkRealSrcLoc, mkRealSrcSpan, srcSpanFile, srcSpanFileName_maybe, srcSpanStartLine, srcSpanStartCol)
 
-import           Language.Fixpoint.Names      (dropModuleNames)
+import           Language.Fixpoint.Names      (dropModuleNames, funConName, listConName)
 import           Language.Fixpoint.Misc       (errorstar, stripParens)
 import           Text.Parsec.Pos              (sourceName, sourceLine, sourceColumn, SourcePos, newPos)
 import           Language.Fixpoint.Types      hiding (SESearch(..))
@@ -53,8 +53,7 @@ import           RdrName
 import           Type                         (liftedTypeKind, eqType)
 import           TypeRep
 import           Var
--- import           TyCon                        (mkSuperKindTyCon)
-import qualified TyCon                        as TC
+import           TyCon                        (mkKindTyCon, isFunTyCon, isTupleTyCon)
 import qualified DataCon                      as DC
 import           FastString                   (uniq, unpackFS, fsLit)
 import           Data.Char                    (isLower, isSpace)
@@ -129,7 +128,7 @@ stringTyVar s = mkTyVar name liftedTypeKind
         occ  = mkTyVarOcc s
 
 stringTyCon :: Char -> Int -> String -> TyCon
-stringTyCon c n s = TC.mkKindTyCon name superKind
+stringTyCon c n s = mkKindTyCon name superKind
   where 
     name          = mkInternalName (mkUnique c n) occ noSrcSpan
     occ           = mkTcOcc s
@@ -372,6 +371,14 @@ symbolTyCon x i n = stringTyCon x i (symbolString n)
 symbolTyVar n = stringTyVar (symbolString n)
 
 instance Symbolic TyCon where
+  symbol t | isFunTyCon   t = funConName
+           | isListTyCon  t = listConName
+           | isTupleTyCon t = symbol $ getName t
+           | otherwise      = symbol $ qualifiedNameSymbol $ getName t
+
+isListTyCon = (== listConName) . symbol . getName
+
+instance Symbolic Class where
   symbol = symbol . qualifiedNameSymbol . getName
 
 instance Symbolic Name where

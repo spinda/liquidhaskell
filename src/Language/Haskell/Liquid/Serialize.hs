@@ -36,12 +36,12 @@ instance (Eq v, Hashable v, Serialize v) => Serialize (S.HashSet v) where
 
 instance Serialize InternedText
 
-instance Serialize SourcePos where
-  put pos = put (sourceName pos) >> put (sourceLine pos) >> put (sourceColumn pos)
-  get = liftM3 newPos get get get
+-- Don't bother encoding location information. Just use a dummyLoc when decoding.
+instance Serialize a => Serialize (Ty.Located a) where
+  put = put . Ty.val
+  get = dummyLoc <$> get
 
 instance Serialize Fx.Symbol
-instance Serialize Fx.Qualifier
 
 instance Serialize Fx.Reft
 instance Serialize Fx.Refa
@@ -60,14 +60,11 @@ instance (Serialize c, Serialize tv, Serialize r, Serialize (Ty.RTProp c tv r), 
 
 instance (Serialize τ, Serialize r, Serialize t) => Serialize (Ty.Ref τ r t)
 
-instance (Serialize tv, Serialize ty) => Serialize (Ty.RTAlias tv ty)
-
 instance Serialize a => Serialize (Ty.PVar a)
 instance Serialize t => Serialize (Ty.PVKind t)
 instance Serialize t => Serialize (Ty.World t)
 instance Serialize t => Serialize (Ty.HSeg t)
 instance Serialize r => Serialize (Ty.UReft r)
-instance Serialize a => Serialize (Ty.Located a)
 instance Serialize a => Serialize (Ty.Def a)
 instance Serialize t => Serialize (Ty.RClass t)
 

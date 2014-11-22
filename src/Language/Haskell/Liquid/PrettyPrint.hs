@@ -40,6 +40,7 @@ import TypeRep          hiding (maybeParen, pprArrowChain)
 import Text.Parsec.Pos              (SourcePos, newPos, sourceName, sourceLine, sourceColumn) 
 import Text.Parsec.Error (ParseError, errorMessages, showErrorMessages)
 import Var              (Var)
+import TyCon            (TyCon)
 import Control.Applicative ((<*>), (<$>))
 import Data.Maybe   (fromMaybe)
 import Data.List    (sort, sortBy)
@@ -82,6 +83,9 @@ instance PPrint Type where
   pprint = pprDoc . tidyType emptyTidyEnv
 
 instance PPrint Class where
+  pprint = pprDoc
+
+instance PPrint TyCon where
   pprint = pprDoc
 
 instance Show Predicate where

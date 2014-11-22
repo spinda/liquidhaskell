@@ -795,6 +795,9 @@ instance Eq RTyCon where
 instance Fixpoint RTyCon where
   toFix (RTyCon c _ _) = text $ showPpr c -- <+> text "\n<<" <+> hsep (map toFix ts) <+> text ">>\n"
 
+instance Symbolic RTyCon where
+  symbol = symbol . rtc_tc
+
 
 instance PPrint RTyCon where
   pprint (RTyCon c _ i) = (text $ showPpr c) <+> text (show i)
@@ -1792,8 +1795,7 @@ instance Show DataCon where
 -----------------------------------------------------------
 
 data Intr = Intr {
-    depends :: !(S.HashSet Symbol)              -- ^ Modules that this module imports (depends on)
-  , tyCons  :: !(M.HashMap Symbol BTyCon)       -- ^ Exported type constructors
+    tyCons  :: !(M.HashMap Symbol BTyCon)       -- ^ Exported type constructors
   , meaSigs :: !(M.HashMap Symbol BareType)     -- ^ Signatures of measures defined within this module
   , fnSigs  :: !(M.HashMap Symbol BareType)     -- ^ Signatures of exported functions
   } deriving Generic

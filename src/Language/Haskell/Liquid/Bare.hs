@@ -67,17 +67,21 @@ import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.RefType          hiding (freeTyVars)
 import Language.Haskell.Liquid.Errors
-import Language.Haskell.Liquid.PredType hiding (unify)
+import Language.Haskell.Liquid.PredType         hiding (unify)
 import Language.Haskell.Liquid.CoreToLogic
+import Language.Haskell.Liquid.PrettyPrint      (pprintLongList)
 import Language.Haskell.Liquid.Variance
-import qualified Language.Haskell.Liquid.Measure as Ms
 import Language.Haskell.Liquid.WiredIn
+
+import qualified Language.Haskell.Liquid.Measure   as Ms
+import qualified Language.Haskell.Liquid.Serialize as Sr
 
 
 import Data.Maybe
 import qualified Data.List           as L
 import qualified Data.HashSet        as S
 import qualified Data.HashMap.Strict as M
+import qualified Data.ByteString     as BS
 import TypeRep
 
 import Debug.Trace (trace)
@@ -87,13 +91,14 @@ import Debug.Trace (trace)
 ------------------------------------------------------------------
 
 makeGhcSpec :: Config -> ModName -> [CoreBind] -> [Var] -> [Var] -> NameSet -> HscEnv
+            -> Maybe BS.ByteString
             -> [(ModName,Ms.BareSpec)]
             -> IO GhcSpec
-makeGhcSpec cfg name cbs vars defVars exports env specs
+makeGhcSpec cfg name cbs vars defVars exports env lqhi specs
   
   = throwOr (throwOr return . checkGhcSpec specs . postProcess cbs) =<< execBare act initEnv
   where
-    act      = makeGhcSpec' cfg cbs vars defVars exports specs
+    act      = makeGhcSpec' cfg cbs vars defVars exports lqhi specs
     throwOr  = either Ex.throw
     initEnv  = BE name mempty mempty mempty env
     
@@ -105,9 +110,9 @@ postProcess cbs sp@(SP {..}) = sp { tySigs = sigs, texprs = ts }
 
 
 ------------------------------------------------------------------------------------------------
-makeGhcSpec' :: Config -> [CoreBind] -> [Var] -> [Var] -> NameSet -> [(ModName, Ms.BareSpec)] -> BareM GhcSpec
+makeGhcSpec' :: Config -> [CoreBind] -> [Var] -> [Var] -> NameSet -> Maybe BS.ByteString -> [(ModName, Ms.BareSpec)] -> BareM GhcSpec
 ------------------------------------------------------------------------------------------------
-makeGhcSpec' cfg cbs vars defVars exports specs
+makeGhcSpec' cfg cbs vars defVars exports lqhi specs
   = do name                                    <- gets modName
        makeRTEnv specs
        (tycons, datacons, dcSs, tyi, embs)     <- makeGhcSpecCHOP1 specs
@@ -117,12 +122,59 @@ makeGhcSpec' cfg cbs vars defVars exports specs
        (measures, cms', ms', cs', xs')         <- makeGhcSpecCHOP3 cfg cbs vars specs dcSs datacons cls embs
        syms                                    <- makeSymbols (vars ++ map fst cs') xs' (sigs ++ asms ++ cs') ms' (invs ++ (snd <$> ialias))
        let su  = mkSubst [ (x, mkVarExpr v) | (x, v) <- syms]
+       testLqhi lqhi
        return (emptySpec cfg)
          >>= makeGhcSpec0 cfg defVars exports name
          >>= makeGhcSpec1 vars embs tyi exports name sigs asms cs' ms' cms' su 
          >>= makeGhcSpec2 invs ialias measures su                     
          >>= makeGhcSpec3 datacons tycons embs syms             
          >>= makeGhcSpec4 defVars specs name su 
+
+--------------------------------------------------------------------------------
+
+testLqhi :: Maybe BS.ByteString -> BareM ()
+testLqhi Nothing
+  = liftIO $ putStrLn "( no lqhi data )"
+testLqhi (Just lqhi)
+  = testLqhi' $ Sr.decode lqhi
+
+testLqhi' :: Either String Intr -> BareM ()
+testLqhi' (Left err)
+  = liftIO $ putStrLn $ "( decode error : " ++ err ++ " )"
+testLqhi' (Right intr)
+  = do liftIO $ putStrLn "================================================================================"
+
+       liftIO $ putStrLn "-- inflated type constructors --------------------------------------------------"
+       tyc <- mapM inflateTyCon $ M.toList $ tyCons intr
+       liftIO $ putStrLn $ render $ pprintLongList tyc
+
+       liftIO $ putStrLn "-- inflated measure signatures -------------------------------------------------"
+       meas <- mapM inflateMeaSig $ M.toList $ meaSigs intr
+       liftIO $ putStrLn $ render $ pprintLongList meas
+
+       liftIO $ putStrLn "-- inflated function/data cons signatures --------------------------------------"
+       fns <- mapM inflateFnSig $ M.toList $ fnSigs intr
+       liftIO $ putStrLn $ render $ pprintLongList fns
+
+       liftIO $ putStrLn "================================================================================"
+
+  where inflateTyCon (sym, btc)
+          = do tyc <- lookupGhcTyCon $ dummyLoc sym
+               pvs <- mapM ofBPVar $ btc_pvars btc
+               return (tyc, RTyCon tyc pvs $ btc_info btc)
+
+        inflateMeaSig (sym, ty)
+          = do spec <- inflateType ty
+               return (sym, spec)
+
+        inflateFnSig (sym, ty)
+          = do var  <- lookupGhcVar (dummyLoc sym)
+               spec <- inflateType ty
+               return (var, spec)
+
+        inflateType = mkSpecType (dummyPos "TODO")
+
+--------------------------------------------------------------------------------
 
 emptySpec     :: Config -> GhcSpec
 emptySpec cfg = SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty cfg mempty [] mempty 

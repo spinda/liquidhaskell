@@ -123,17 +123,27 @@ getGhcInfo' cfg0 target
       let useVs           = readVars    coreBinds
       let letVs           = letVars     coreBinds
       let derVs           = derivedVars coreBinds $ mgi_is_dfun modguts
-      (spec, imps, incs) <- moduleSpec cfg coreBinds (impVs ++ defVs) letVs name' modguts tgtSpec impSpecs'
+      lqhi               <- liftIO $ readLqhiData target
+      (spec, imps, incs) <- moduleSpec cfg coreBinds (impVs ++ defVs) letVs name' modguts lqhi tgtSpec impSpecs'
       liftIO              $ whenLoud $ putStrLn $ "Module Imports: " ++ show imps
       hqualFiles         <- moduleHquals modguts paths target imps incs
       liftIO              $ testIntrGen spec tgtSpec target
       return              $ GI hscEnv coreBinds derVs impVs letVs useVs hqualFiles imps incs spec 
 
+lqhiFilePath :: FilePath -> FilePath
+lqhiFilePath = (`replaceExtension` "lqhi")
+
+readLqhiData :: FilePath -> IO (Maybe BS.ByteString)
+readLqhiData target
+  = do exists <- doesFileExist file
+       if exists
+          then Just <$> BS.readFile file
+          else return Nothing
+  where file = lqhiFilePath target
+
 testIntrGen :: GhcSpec -> Ms.BareSpec -> FilePath -> IO ()
 testIntrGen ghcSpec tgtSpec target
   = do putStrLn "================================================================================"
-       putStrLn "-- module imports/dependencies -------------------------------------------------"
-       putStrLn $ render $ pprintLongList $ S.toList $ depends intr
        putStrLn "-- exported type constructors --------------------------------------------------"
        putStrLn $ render $ pprintLongList $ M.toList $ tyCons intr
        putStrLn "-- exported measure signatures -------------------------------------------------"
@@ -142,11 +152,9 @@ testIntrGen ghcSpec tgtSpec target
        putStrLn $ render $ pprintLongList $ M.toList $ fnSigs intr
        putStrLn "================================================================================"
 
-       let lqhiFile = replaceExtension target "lqhi"
-       BS.writeFile lqhiFile $ Sr.encode intr
+       BS.writeFile (lqhiFilePath target) $ Sr.encode intr
 
-  where intr = Intr { depends = S.fromList $ Ms.imports tgtSpec -- FIXME: Doesn't work?
-                    , tyCons  = M.fromList expTyCons
+  where intr = Intr { tyCons  = M.fromList expTyCons
                     , meaSigs = M.fromList expMeaSigs
                     , fnSigs  = M.fromList expFnSigs
                     }
@@ -193,7 +201,7 @@ deflateRRType (RFun b i o r)          = RFun b (deflateRRType i) (deflateRRType 
 deflateRRType (RAllT tv ty)           = RAllT (symbol tv) (deflateRRType ty)
 deflateRRType (RAllP pv ty)           = RAllP (deflateRPVar pv) (deflateRRType ty)
 deflateRRType (RAllS b ty)            = RAllS b (deflateRRType ty)
-deflateRRType (RApp tyc args pargs r) = RApp (dummyLoc $ symbol $ rtc_tc tyc) (map deflateRRType args) (map deflateRTProp pargs) r
+deflateRRType (RApp tyc args pargs r) = RApp (dummyLoc $ symbol tyc) (map deflateRRType args) (map deflateRTProp pargs) r
 deflateRRType (RAllE b arg ty)        = RAllE b (deflateRRType arg) (deflateRRType ty)
 deflateRRType (REx b arg ty)          = REx b (deflateRRType arg) (deflateRRType ty)
 deflateRRType (RExprArg expr)         = RExprArg expr
@@ -388,7 +396,7 @@ moduleHquals mg paths target imps incs
 -- | Extracting Specifications (Measures + Assumptions) ------------------------
 --------------------------------------------------------------------------------
  
-moduleSpec cfg cbs vars defVars target mg tgtSpec impSpecs
+moduleSpec cfg cbs vars defVars target mg lqhi tgtSpec impSpecs
   = do addImports  impSpecs
        addContext  $ IIModule $ moduleName $ mgi_module mg
        env        <- getSession
@@ -397,7 +405,7 @@ moduleSpec cfg cbs vars defVars target mg tgtSpec impSpecs
                                            | (_,spec) <- specs
                                            , x <- Ms.imports spec
                                            ]
-       ghcSpec    <- liftIO $ makeGhcSpec cfg target cbs vars defVars exports env specs
+       ghcSpec    <- liftIO $ makeGhcSpec cfg target cbs vars defVars exports env lqhi specs
        return      (ghcSpec, imps, Ms.includes tgtSpec)
     where
       exports    = mgi_exports mg
