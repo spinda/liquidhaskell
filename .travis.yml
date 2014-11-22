@@ -1,7 +1,8 @@
 # NB: don't set `language: haskell` here
 branches:
  only:
-  - master
+  - lqhi
+  - bare-overhaul
 
 env:
  - SMT=z3 TESTS=pos
