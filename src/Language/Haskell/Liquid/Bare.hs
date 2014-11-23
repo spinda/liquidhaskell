@@ -209,6 +209,132 @@ makeGhcSpecCHOP3 cfg cbs vars specs dcSelectors datacons cls embs
        let cs'          = [ (v, Loc (getSourcePos v) (txRefSort tyi embs t)) | (v, t) <- meetDataConSpec cs (datacons ++ cls)]
        let xs'          = val . fst <$> ms
        return (measures, cms', ms', cs', xs')
+
+--------------------------------------------------------------------------------   
+
+data UnpackEnv r r' = UE { visited  :: [Symbol]
+                         , resolver :: r -> BareM r'
+                         , expander :: UnpackEnv r r' -> BRType r -> BareM (Maybe (RRType r'))
+                         }
+
+ofBareType :: (PPrint r, Reftable r) => BRType r -> BareM (RRType r)
+ofBareType = unpackBareType env
+  where env = UE { visited  = []
+                 , resolver = return
+                 , expander = \_ _ -> return Nothing
+                 }
+
+mkSpecType :: SourcePos -> BareType -> BareM SpecType
+mkSpecType l t = mkSpecType' l (ty_preds $ toRTypeRep t) t
+
+mkSpecType' :: SourcePos -> [PVar BSort] -> BareType -> BareM SpecType
+mkSpecType' l πs t
+  = do t' <- expReft $ txParams subvUReft (uPVar <$> πs) t
+       unpackBareType env t'
+  where env = UE { visited  = []
+                 , resolver = resolve l
+                 , expander = unpackExpansion l
+                 }
+
+        expReft      = mapReftM (txPredReft expPred expExpr)
+        expPred      = expandPAlias l [] -- TODO: Unroll some of these?
+        expExpr      = expandEAlias l []
+
+-- TODO: Move GHC lookup stuff to dependency-injected model
+-- TODO: Replace liftMs with <$>/<*>, where possible
+unpackBareType :: (PPrint r, PPrint r', Reftable r, Reftable r') => UnpackEnv r r' -> BRType r -> BareM (RRType r')
+unpackBareType env = go
+  where
+    go t@(RApp (Loc _ c) _ _ _)
+      | c `elem` visited env
+        = Ex.throw $ errOther $ text
+                   $ "Cyclic Reftype Alias Definition: " ++ show (c : visited env)
+      | otherwise
+        = unpackRApp env t
+
+    go (RVar a r)      = RVar (symbolRTyVar a) <$> resolver env r
+    go (RFun x t t' r) = rFun x <$> go t <*> go t'
+    go (RAppTy t t' r) = RAppTy <$> go t <*> go t' <*> resolver env r
+    go (RAllE x t1 t2) = liftM2 (RAllE x) (go t1) (go t2)
+    go (REx x t1 t2)   = liftM2 (REx x) (go t1) (go t2)
+    go (RAllT a t)     = RAllT (symbolRTyVar a) <$> go t
+    go (RAllP a t)     = RAllP <$> ofBPVar a <*> go t -- TODO: Definitely need to unroll BPVar!
+    go (RAllS l t)     = RAllS l <$> go t
+    go (ROth s)        = return $ ROth s
+    go (RExprArg e)    = return $ RExprArg e
+    go (RHole r)       = RHole <$> resolver env r
+
+    go t = errorstar $ "Bare : unpackBareType cannot handle " ++ show t
+
+unpackRApp :: (PPrint r, PPrint r', Reftable r, Reftable r') => UnpackEnv r r' -> BRType r -> BareM (RRType r')
+unpackRApp env t@(RApp lc@(Loc _ c) ts rs r)
+  = do expanded <- expander env env t -- TODO: Fix this weirdness. Monad-ify?
+       case expanded of
+         Just result ->
+           return result
+         Nothing
+           | isList c && length ts == 1 ->
+               app listTyCon
+           | isTuple c ->
+               app $ tupleTyCon BoxedTuple (length ts)
+           | otherwise ->
+               lookupGhcTyCon lc >>= app
+  where app tc
+          = do tyi <- tcEnv <$> get
+               r'  <- resolver env r
+               liftM2 (bareTCApp tyi r' tc) -- TODO: Unroll bareTCApp?
+                      (mapM (unpackRTProp   env) rs)
+                      (mapM (unpackBareType env) ts)
+
+unpackRTProp :: (PPrint r, PPrint r', Reftable r, Reftable r') => UnpackEnv r r' -> RTProp LocSymbol Symbol r -> BareM (RTProp RTyCon RTyVar r')
+unpackRTProp env = go
+  where go (RPropP ss r) = RPropP <$> mapM ofSyms ss <*> resolver env r -- TODO: Unroll ofSyms?
+        go (RProp  ss t) = RProp  <$> mapM ofSyms ss <*> unpackBareType env t
+        go (RHProp _  _) = errorstar "TODO:EFFECTS:unpackRTProp" -- TODO: Fix this?
+
+-- TODO: Rename this series of functions
+-- TODO: Document or make clearer how this works
+unpackExpansion :: SourcePos -> UnpackEnv RReft RReft -> BareType -> BareM (Maybe SpecType)
+unpackExpansion l env t@(RApp (Loc _ c) ts _ r)
+  = do tya <- gets (typeAliases.rtEnv)
+       case M.lookup c tya of
+         Nothing ->
+           return Nothing
+         Just alias ->
+           Just <$>
+             case alias of
+               Left (mod, rtb) ->
+                 do let env' = env { visited = c : visited env }
+                    st <- inModule mod $ withVArgs l (rtVArgs rtb) $ unpackBareType env' $ rtBody rtb
+                    let rts = mapRTAVars symbolRTyVar $ rtb { rtBody = st }
+                    setRTAlias c $ Right rts
+                    r' <- resolver env r
+                    unpackRTApp l env rts ts r'
+               Right rts ->
+                 do r' <- resolver env r
+                    withVArgs l (rtVArgs rts) $ unpackRTApp l env rts ts r'
+
+-- TODO: Add type signature?
+-- TODO: Document this and/or make it clearer what it's doing
+unpackRTApp l env rta args r
+  | length args == length αs + length εs
+  = do args'  <- mapM (unpackBareType env) args
+       let ts  = take (length αs) args'
+           αts = zipWith (\α t -> (α, toRSort t, t)) αs ts
+       return $ subst su . (`strengthen` r) . subsTyVars_meet αts $ rtBody rta
+  | otherwise
+  = Ex.throw err
+  where
+    su        = mkSubst $ zip (symbol <$> εs) es
+    αs        = rtTArgs rta 
+    εs        = rtVArgs rta
+    es_       = drop (length αs) args
+    es        = map (exprArg $ show err) es_
+    msg       = show err
+    err       :: Error
+    err       = ErrAliasApp (sourcePosSrcSpan l) (length args) (pprint $ rtName rta) (sourcePosSrcSpan $ rtPos rta) (length αs + length εs) 
+
+--------------------------------------------------------------------------------   
        
 makeHaskellMeasures :: [CoreBind] -> ModName -> (ModName, Ms.BareSpec) -> BareM (Ms.MSpec SpecType DataCon)
 makeHaskellMeasures cbs name' (name, spec) | name /= name' = return mempty
@@ -957,10 +1083,10 @@ makeInvariants' ts = mapM mkI ts
   where 
     mkI (Loc l t)  = (Loc l) . generalize <$> mkSpecType l t
 
-mkSpecType l t = mkSpecType' l (ty_preds $ toRTypeRep t)  t
+--mkSpecType l t = mkSpecType' l (ty_preds $ toRTypeRep t)  t
 
-mkSpecType' :: SourcePos -> [PVar BSort] -> BareType -> BareM SpecType
-mkSpecType' l πs = expandRTAlias l . txParams subvUReft (uPVar <$> πs)
+--mkSpecType' :: SourcePos -> [PVar BSort] -> BareType -> BareM SpecType
+--mkSpecType' l πs = expandRTAlias l . txParams subvUReft (uPVar <$> πs)
 
 -- WTF does this function do?
 makeSymbols vs xs' xts yts ivs
@@ -1170,6 +1296,7 @@ instance (Resolvable t) => Resolvable (PVar t) where
 instance Resolvable () where
   resolve l = return 
 
+{-
 ------------------------------------------------------------------------
 -- | Transforming Raw Strings using GHC Env ----------------------------
 ------------------------------------------------------------------------
@@ -1209,6 +1336,7 @@ ofBareType (RHole r)
   = return $ RHole r
 ofBareType t
   = errorstar $ "Bare : ofBareType cannot handle " ++ show t
+-}
 
 ofRef (RProp ss t)   
   = RProp <$> mapM ofSyms ss <*> ofBareType t
