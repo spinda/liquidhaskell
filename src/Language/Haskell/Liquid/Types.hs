@@ -1473,6 +1473,10 @@ data TError t =
                 , hs   :: !Type
                 , texp :: !t
                 } -- ^ Mismatch between Liquid and Haskell types
+  
+  | ErrAliasCycle { pos    :: !SrcSpan
+                  , acycle :: ![(SrcSpan, Doc)] 
+                  } -- ^ Cyclic Refined Type Alias Definitions
 
   | ErrIllegalAliasApp { pos   :: !SrcSpan
                        , dname :: !Doc
@@ -1490,7 +1494,6 @@ data TError t =
                 , msg :: !Doc
                 } -- ^ Previously saved error, that carries over after DiffCheck
 
-  
   | ErrTermin   { bind :: ![Var]
                 , pos  :: !SrcSpan
                 , msg  :: !Doc
