@@ -1,5 +1,7 @@
 module Language.Haskell.Liquid.Bare.Env (
-    BareM
+    Out
+
+  , BareM
   , Warn
   , TCEnv
 
@@ -34,6 +36,9 @@ import Language.Haskell.Liquid.Types
 -----------------------------------------------------------------------------------
 -- | Error-Reader-IO For Bare Transformation --------------------------------------
 -----------------------------------------------------------------------------------
+
+-- TODO: Rename
+type Out = WriterT [Warn] (ErrorT Error IO)
 
 -- FIXME: don't use WriterT [], very slow
 type BareM = WriterT [Warn] (ErrorT Error (StateT BareEnv IO))

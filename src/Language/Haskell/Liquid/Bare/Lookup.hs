@@ -5,7 +5,6 @@
 module Language.Haskell.Liquid.Bare.Lookup (
     GhcLookup(..)
 
-  , lookupGhcThing
   , lookupGhcVar
   , lookupGhcTyCon
   , lookupGhcDataCon

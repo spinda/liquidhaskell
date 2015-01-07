@@ -21,7 +21,6 @@ import Control.Monad.Reader hiding (forM)
 import Control.Monad.State hiding (forM)
 import Data.Maybe (fromMaybe)
 import Data.Monoid
-import Data.Traversable (forM)
 import Text.Parsec.Pos
 import Text.Printf
 
@@ -151,12 +150,6 @@ ofBPVar_inner :: BPVar -> TypeM r RPVar
 ofBPVar_inner
   = mapM_pvar ofBSort_inner
 
-mapM_pvar :: (Monad m) => (a -> m b) -> PVar a -> m (PVar b)
-mapM_pvar f (PV x t v txys) 
-  = do t'    <- forM t f 
-       txys' <- mapM (\(t, x, y) -> liftM (, x, y) (f t)) txys 
-       return $ PV x t' v txys'
-
 --------------------------------------------------------------------------------
 
 ofRApp :: (PPrint r, Reftable r) => BRType r -> TypeM r (RRType r)
@@ -188,85 +181,6 @@ ofRef (RHProp _ _)
 
 ofSyms
   = secondM ofBSort_inner
-
---------------------------------------------------------------------------------
-
--- TODO: Condense this a bit
-failRTAliasApp :: BRType r -> RTAlias RTyVar SpecType -> TypeM r (RRType r)
-failRTAliasApp (RApp (Loc l _) _ _ _) rta
-  = Ex.throw err
-  where
-    err :: Error
-    err = ErrIllegalAliasApp (sourcePosSrcSpan l) (pprint $ rtName rta) (sourcePosSrcSpan $ rtPos rta)
-failRTAliasApp _ _
-  = errorstar "Bare.Type.failRTAliasApp called with invalid input"
-
--- TODO: Why aren't pargs handled here? Should they be?
-expandRTAliasApp :: BareType -> RTAlias RTyVar SpecType -> TypeM RReft SpecType
-expandRTAliasApp (RApp (Loc l _) ts _ r) rta
-  = do r'  <- resolveReft r
-       env <- ask
-       lift $ withVArgs l (rtVArgs rta) $ runReaderT (expandRTAliasApp' l rta ts r') env
-expandRTAliasApp _ _
-  = errorstar "Bare.Type.expandRTAliasApp called with invalid input"
-
-expandRTAliasApp' :: SourcePos -> RTAlias RTyVar SpecType -> [BareType] -> RReft -> TypeM RReft SpecType
-expandRTAliasApp' l rta args r
-  | length args == length αs + length εs
-    = do args' <- mapM ofBRType' args
-         let ts  = take (length αs) args'
-             αts = zipWith (\α t -> (α, toRSort t, t)) αs ts
-         return $ subst su . (`strengthen` r) . subsTyVars_meet αts $ rtBody rta
-  | otherwise
-    = Ex.throw err
-  where
-    su        = mkSubst $ zip (symbol <$> εs) es
-    αs        = rtTArgs rta 
-    εs        = rtVArgs rta
-    es_       = drop (length αs) args
-    es        = map (exprArg $ show err) es_
-    err       :: Error
-    err       = ErrAliasApp (sourcePosSrcSpan l) (length args) (pprint $ rtName rta) (sourcePosSrcSpan $ rtPos rta) (length αs + length εs) 
-
--- | exprArg converts a tyVar to an exprVar because parser cannot tell 
--- HORRIBLE HACK To allow treating upperCase X as value variables X
--- e.g. type Matrix a Row Col = List (List a Row) Col
-
-exprArg _   (RExprArg e)     
-  = e
-exprArg _   (RVar x _)       
-  = EVar (symbol x)
-exprArg _   (RApp x [] [] _) 
-  = EVar (symbol x)
-exprArg msg (RApp f ts [] _) 
-  = EApp (symbol <$> f) (exprArg msg <$> ts)
-exprArg msg (RAppTy (RVar f _) t _)   
-  = EApp (dummyLoc $ symbol f) [exprArg msg t]
-exprArg msg z 
-  = errorstar $ printf "Unexpected expression parameter: %s in %s" (show z) msg 
-
---------------------------------------------------------------------------------
-
-tyApp (RApp c ts rs r) ts' rs' r' = RApp c (ts ++ ts') (rs ++ rs') (r `meet` r')
-tyApp t                []  []  r  = t `strengthen` r
-tyApp _                 _  _   _  = errorstar $ "Bare.Type.tyApp on invalid inputs"
-
-bareTCApp r c rs ts | Just (SynonymTyCon rhs) <- synTyConRhs_maybe c
-   = tyApp (subsTyVars_meet su $ ofType rhs) (drop nts ts) rs r 
-   where tvs = tyConTyVars  c
-         su  = zipWith (\a t -> (rTyVar a, toRSort t, t)) tvs ts
-         nts = length tvs
-
--- TODO expandTypeSynonyms here to
-bareTCApp r c rs ts | isFamilyTyCon c && isTrivial t
-  = expandRTypeSynonyms $ t `strengthen` r 
-  where t = rApp c ts rs mempty
-
-bareTCApp r c rs ts 
-  = rApp c ts rs r
-
-expandRTypeSynonyms :: (PPrint r, Reftable r) => RRType r -> RRType r
-expandRTypeSynonyms = ofType . expandTypeSynonyms . toType
 
 --------------------------------------------------------------------------------
 

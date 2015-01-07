@@ -206,6 +206,8 @@ Library
                     Language.Haskell.Liquid.Bare.Spec
                     Language.Haskell.Liquid.Bare.Type
 
+                    Language.Haskell.Liquid.Bare.Typing
+
                     --NOTE: these need to be exposed so GHC generates .dyn_o files for them..
                     Language.Haskell.Liquid.Desugar.Desugar,
                     Language.Haskell.Liquid.Desugar.DsExpr,

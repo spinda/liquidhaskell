@@ -11,6 +11,7 @@
 {-# LANGUAGE OverlappingInstances  #-}
 {-# LANGUAGE ViewPatterns          #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TupleSections         #-}
 
 -- | This module should contain all the global type definitions and basic instances.
 
@@ -60,6 +61,7 @@ module Language.Haskell.Liquid.Types (
   , PVar (PV, pname, parg, ptype, pargs), isPropPV, pvType
   , PVKind (..)
   , Predicate (..)
+  , mapM_pvar
 
   -- * Refinements
   , UReft(..)
@@ -444,6 +446,11 @@ instance (NFData a) => NFData (PVar a) where
 instance Hashable (PVar a) where
   hashWithSalt i (PV n _ _ _) = hashWithSalt i n
 
+mapM_pvar :: (Monad m) => (a -> m b) -> PVar a -> m (PVar b)
+mapM_pvar f (PV x t v txys)
+  = do t'    <- forM t f
+       txys' <- mapM (\(t, x, y) -> liftM (, x, y) (f t)) txys
+       return $ PV x t' v txys'
 
 --------------------------------------------------------------------
 ------------------ Predicates --------------------------------------
