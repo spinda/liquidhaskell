@@ -22,7 +22,6 @@ import Language.Haskell.Liquid.Types
 import qualified Language.Haskell.Liquid.Measure as Ms
 
 import Language.Haskell.Liquid.Bare.Env
-import Language.Haskell.Liquid.Bare.Expand
 import Language.Haskell.Liquid.Bare.OfType
 import Language.Haskell.Liquid.Bare.Resolve
 
@@ -39,39 +38,39 @@ makeRTEnv specs
 
 
 makeRTAliases
-  = graphExpand buildTypeEdges expBody
+  = graphResolve buildTypeEdges expBody
   where
     expBody (mod, xt)
       = inModule mod $ 
           do let l = rtPos xt
-             body <- withVArgs l (rtVArgs xt) $ ofBareType l $ rtBody xt
+             body <- ofBareType l (rtVArgs xt) $ rtBody xt
              setRTAlias (rtName xt) $ mapRTAVars symbolRTyVar $ xt { rtBody = body}
 
 makeRPAliases
-  = graphExpand buildPredEdges expBody
+  = graphResolve buildPredEdges expBody
   where 
     expBody (mod, xt)
       = inModule mod $
           do let l = rtPos xt
-             body <- withVArgs l (rtVArgs xt) $ resolve l =<< (expandPred $ rtBody xt)
+             body <- resolvePred l (rtVArgs xt) (rtBody xt)
              setRPAlias (rtName xt) $ xt { rtBody = body }
 
 makeREAliases
-  = graphExpand buildExprEdges expBody
+  = graphResolve buildExprEdges expBody
   where 
     expBody (mod, xt)
       = inModule mod $
           do let l = rtPos xt
-             body <- withVArgs l (rtVArgs xt) $ resolve l =<< (expandExpr $ rtBody xt)
+             body <- resolveExpr l (rtVArgs xt) (rtBody xt)
              setREAlias (rtName xt) $ xt { rtBody = body }
 
 
-graphExpand buildEdges expBody xts
+graphResolve buildEdges expBody xts
   = do let table = buildAliasTable xts
            graph = buildAliasGraph (buildEdges table) (map snd xts)
        checkCyclicAliases table graph
 
-       mapM_ expBody $ genExpandOrder table graph
+       mapM_ expBody $ genResolveOrder table graph
 
 --------------------------------------------------------------------------------
 
@@ -127,8 +126,8 @@ checkCyclicAliases table graph
         )
 
 
-genExpandOrder :: AliasTable t -> Graph Symbol -> [(ModName, RTAlias Symbol t)]
-genExpandOrder table graph 
+genResolveOrder :: AliasTable t -> Graph Symbol -> [(ModName, RTAlias Symbol t)]
+genResolveOrder table graph 
   = map (fromAliasSymbol table) symOrder
   where
     (digraph, lookupVertex, _)

@@ -6,7 +6,6 @@ module Language.Haskell.Liquid.Bare.Env (
   , BareEnv(..)
 
   , inModule
-  , withVArgs
 
   , setRTAlias
   , setRPAlias
@@ -26,7 +25,7 @@ import Control.Monad.Writer
 import qualified Control.Exception   as Ex 
 import qualified Data.HashMap.Strict as M
 
-import Language.Fixpoint.Types (Expr(..), Symbol, symbol)
+import Language.Fixpoint.Types (Symbol)
 
 import Language.Haskell.Liquid.Errors ()
 import Language.Haskell.Liquid.Types
@@ -59,15 +58,6 @@ inModule m act = do
   modify $ setModule old
   return res
 
-withVArgs l vs act = do
-  old <- gets rtEnv
-  mapM_ (mkExprAlias l . symbol . showpp) vs
-  res <- act
-  modify $ \be -> be { rtEnv = old }
-  return res
-
-mkExprAlias l v
-  = setRTAlias v (RTA v [] [] (RExprArg (EVar $ symbol v)) l)
 
 setRTAlias s a =
   modify $ \b -> b { rtEnv = mapRT (M.insert s a) $ rtEnv b }

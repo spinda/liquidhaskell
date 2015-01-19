@@ -1,108 +1,211 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeSynonymInstances #-}  
 
 module Language.Haskell.Liquid.Bare.Resolve (
-    Resolvable(..)
+    resolveQualifier
+
+  , resolveRReft
+
+  , resolvePred
+  , resolveExpr
   ) where
 
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative
 import Control.Monad.State
-import Data.Char (isUpper)
-import Text.Parsec.Pos
+import Data.Char
+import Text.Parsec.Pos (SourcePos)
 
 import qualified Data.List           as L
-import qualified Data.Text           as T
 import qualified Data.HashMap.Strict as M
+import qualified Data.Text           as T
 
+import Language.Fixpoint.Misc (errorstar)
 import Language.Fixpoint.Names (prims)
-import Language.Fixpoint.Types (Expr(..), Pred(..), Qualifier(..), Refa(..), Reft(..), Sort(..), Symbol, fTyconSymbol, symbol, symbolFTycon, symbolText)
+import Language.Fixpoint.Types (Expr(..), Pred(..), Qualifier(..), Refa(..), Reft(..), Sort(..), Symbol, fTyconSymbol, mkSubst, symbol, symbolFTycon, symbolText, subst)
 
-import Language.Haskell.Liquid.Misc (secondM, third3M)
+import Language.Haskell.Liquid.Misc (safeZipWithError, secondM, third3M)
 import Language.Haskell.Liquid.Types
 
 import Language.Haskell.Liquid.Bare.Env
 import Language.Haskell.Liquid.Bare.Lookup
 
-class Resolvable a where
-  resolve     :: SourcePos -> a -> BareM a
+--------------------------------------------------------------------------------
 
-instance Resolvable a => Resolvable [a] where
-  resolve = mapM . resolve
+resolveQualifier :: Qualifier -> BareM Qualifier
+resolveQualifier (Q n ps b l)
+  = Q n <$> mapM (secondM (resolveSort l)) ps <*> resolvePred l [] b <*> pure l
 
-instance Resolvable Qualifier where
-  resolve _ (Q n ps b l) = Q n <$> mapM (secondM (resolve l)) ps <*> resolve l b <*> return l
+--------------------------------------------------------------------------------
 
-instance Resolvable Pred where
-  resolve l (PAnd ps)       = PAnd    <$> resolve l ps
-  resolve l (POr  ps)       = POr     <$> resolve l ps
-  resolve l (PNot p)        = PNot    <$> resolve l p
-  resolve l (PImp p q)      = PImp    <$> resolve l p  <*> resolve l q
-  resolve l (PIff p q)      = PIff    <$> resolve l p  <*> resolve l q
-  resolve l (PBexp b)       = PBexp   <$> resolve l b
-  resolve l (PAtom r e1 e2) = PAtom r <$> resolve l e1 <*> resolve l e2
-  resolve l (PAll vs p)     = PAll    <$> mapM (secondM (resolve l)) vs <*> resolve l p
-  resolve _ p               = return p
+resolveRReft :: SourcePos -> [Symbol] -> RReft -> BareM RReft
+resolveRReft l vargs (U r p s)
+  = U <$> resolveReft l vargs r <*> resolvePredicate l vargs p <*> pure s
 
-instance Resolvable Expr where
-  resolve l (EVar s)       = EVar   <$> resolve l s
-  resolve l (EApp s es)    = EApp   <$> resolve l s  <*> resolve l es
-  resolve l (EBin o e1 e2) = EBin o <$> resolve l e1 <*> resolve l e2
-  resolve l (EIte p e1 e2) = EIte   <$> resolve l p  <*> resolve l e1 <*> resolve l e2
-  resolve l (ECst x s)     = ECst   <$> resolve l x  <*> resolve l s
-  resolve _ x              = return x
+resolveReft :: SourcePos -> [Symbol] -> Reft -> BareM Reft
+resolveReft l vargs (Reft (v, ras))
+  = Reft . (v,) <$> mapM (resolveRefa l vargs) ras
 
-instance Resolvable LocSymbol where
-  resolve _ ls@(Loc l s)
-    | s `elem` prims 
-    = return ls
-    | otherwise 
-    = do env <- gets (typeAliases . rtEnv)
-         case M.lookup s env of
-           Nothing | isCon s -> do v <- lookupGhcVar $ Loc l s
-                                   let qs = symbol v
-                                   addSym (qs,v)
-                                   return $ Loc l qs
-           _                 -> return ls
+resolveRefa :: SourcePos -> [Symbol] -> Refa -> BareM Refa
+resolveRefa l vargs (RConc p)
+  = RConc <$> resolvePred l vargs p
+resolveRefa _ _ r@(RKvar _ _)
+  = return r
 
-addSym x = modify $ \be -> be { varEnv = (varEnv be) `L.union` [x] }
 
-isCon c 
+resolvePredicate :: SourcePos -> [Symbol] -> Predicate -> BareM Predicate
+resolvePredicate l vargs (Pr pvs)
+  = Pr <$> mapM (resolveUsedPVar l vargs) pvs
+
+resolveUsedPVar :: SourcePos -> [Symbol] -> UsedPVar -> BareM UsedPVar
+resolveUsedPVar l vargs (PV n t v as)
+  = PV n t v <$> mapM (third3M (resolveExpr l vargs)) as
+
+--------------------------------------------------------------------------------
+
+resolvePred :: SourcePos -> [Symbol] -> Pred -> BareM Pred
+resolvePred l vargs
+  = go
+  where
+    go (PBexp e@(EApp (Loc l' f) es))
+      = do aliases <- gets (predAliases.rtEnv)
+           case M.lookup f aliases of
+             Just alias ->
+               expandEApp l' alias <$> mapM (resolveExpr l vargs) es
+             Nothing ->
+               PBexp <$> resolveExpr l vargs e
+    go (PBexp e)
+      = PBexp <$> resolveExpr l vargs e
+
+    go (PAtom r e1 e2)
+      = PAtom r <$> resolveExpr l vargs e1 <*> resolveExpr l vargs e2
+
+    go (PAnd ps)
+      = PAnd <$> mapM go ps
+    go (POr ps)
+      = POr <$> mapM go ps
+    go (PNot p)
+      = PNot <$> go p
+
+    go (PImp p q)
+      = PImp <$> go p <*> go q
+    go (PIff p q)
+      = PIff <$> go p <*> go q
+
+    go PTrue
+      = return PTrue
+    go PFalse
+      = return PFalse
+    go PTop
+      = return PTop
+
+    go (PAll _ _)
+      = errorstar "Bare.Resolve.resolvePred can't handle PAll"
+
+
+resolveExpr :: SourcePos -> [Symbol] -> Expr -> BareM Expr
+resolveExpr l vargs
+  = go
+  where
+    go (EApp lf@(Loc l' f) es)
+      = do aliases <- gets (exprAliases.rtEnv)
+           case M.lookup f aliases of
+             Just alias ->
+               expandEApp l' alias <$> mapM go es
+             Nothing ->
+               EApp <$> go_fsym lf <*> mapM go es
+    go (EVar f)
+      = (EVar . val) <$> (go_fsym $ Loc l f)
+
+    go (EIte p e1 e2)
+      = EIte <$> resolvePred l vargs p <*> go e1 <*> go e2
+
+    go (ECst e s)
+      = ECst <$> go e <*> resolveSort l s
+
+    go (EBin op e1 e2)
+      = EBin op <$> go e1 <*> go e2
+
+    go e@(ESym _)
+      = return e
+    go e@(ECon _)
+      = return e
+
+    go EBot
+      = return EBot
+
+    go (ELit _ _)
+      = errorstar "Bare.Resolve.resolveExpr can't handle ELit"
+
+    go_fsym lf@(Loc _ f)
+      | f `elem` vargs
+        = return lf
+      | otherwise
+        = resolveFSymbol lf
+
+
+-- TODO: Turn this into a proper Error instead of dying
+expandEApp l alias es
+  = subst su $ rtBody alias
+  where su  = mkSubst $ safeZipWithError msg (rtVArgs alias) es
+        msg = "Malformed alias application at " ++ show l ++ "\n\t"
+               ++ show (rtName alias)
+               ++ " defined at " ++ show (rtPos alias)
+               ++ "\n\texpects " ++ show (length $ rtVArgs alias)
+               ++ " arguments but it is given " ++ show (length es)
+
+--------------------------------------------------------------------------------
+
+resolveSort :: SourcePos -> Sort -> BareM Sort
+resolveSort l
+  = go
+  where
+    go (FApp tc ss)
+      | tcs' `elem` prims
+        = FApp tc <$> mapM go ss
+      | otherwise
+        = FApp <$> (symbolFTycon.Loc l'.symbol <$> lookupGhcTyCon tcs) <*> mapM go ss
+      -- FIXME: Nested where...
+      where
+        tcs@(Loc l' tcs')
+          = fTyconSymbol tc
+
+    go (FObj f)
+      = (FObj . val) <$> (resolveFSymbol $ Loc l f)
+
+    go (FFunc i ss)
+      = FFunc i <$> mapM go ss
+
+    go s@(FVar _)
+      = return s
+
+    go FInt
+      = return FInt
+    go FReal
+      = return FReal
+    go FNum
+      = return FNum
+
+--------------------------------------------------------------------------------
+
+resolveFSymbol :: LocSymbol -> BareM LocSymbol
+resolveFSymbol lf@(Loc l f)
+  | f `elem` prims
+    = return lf
+  | isCon f
+    = do v <- lookupGhcVar lf
+         let qs = symbol v
+         addSym (qs, v)
+         return $ Loc l qs
+  | otherwise
+    = return lf
+
+isCon :: Symbol -> Bool
+isCon c
   | Just (c,_) <- T.uncons $ symbolText c = isUpper c
   | otherwise                             = False
 
-instance Resolvable Symbol where
-  resolve l x = fmap val $ resolve l $ Loc l x 
-
-instance Resolvable Sort where
-  resolve _ FInt         = return FInt
-  resolve _ FReal        = return FReal
-  resolve _ FNum         = return FNum
-  resolve _ s@(FObj _)   = return s --FObj . S <$> lookupName env m s
-  resolve _ s@(FVar _)   = return s
-  resolve l (FFunc i ss) = FFunc i <$> resolve l ss
-  resolve _ (FApp tc ss)
-    | tcs' `elem` prims  = FApp tc <$> ss'
-    | otherwise          = FApp <$> (symbolFTycon.Loc l.symbol <$> lookupGhcTyCon tcs) <*> ss'
-      where
-        tcs@(Loc l tcs') = fTyconSymbol tc
-        ss'              = resolve l ss
-
-instance Resolvable (UReft Reft) where
-  resolve l (U r p s) = U <$> resolve l r <*> resolve l p <*> return s
-
-instance Resolvable Reft where
-  resolve l (Reft (s, ras)) = Reft . (s,) <$> mapM resolveRefa ras
-    where
-      resolveRefa (RConc p) = RConc <$> resolve l p
-      resolveRefa kv        = return kv
-
-instance Resolvable Predicate where
-  resolve l (Pr pvs) = Pr <$> resolve l pvs
-
-instance (Resolvable t) => Resolvable (PVar t) where
-  resolve l (PV n t v as) = PV n t v <$> mapM (third3M (resolve l)) as
-
-instance Resolvable () where
-  resolve _ = return 
+-- FIXME: This is a hack left in because makeSymbols in Bare/Misc.hs depends
+--        on it. There's got to be a better way do what it does; right now
+--        it's depending on a side-effect of name resolution, in an
+--        abstraction-breaking way.
+addSym x = modify $ \be -> be { varEnv = (varEnv be) `L.union` [x] }
 

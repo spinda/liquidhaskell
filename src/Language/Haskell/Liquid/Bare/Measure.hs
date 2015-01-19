@@ -48,7 +48,6 @@ import Language.Haskell.Liquid.Types
 import qualified Language.Haskell.Liquid.Measure as Ms
 
 import Language.Haskell.Liquid.Bare.Env
-import Language.Haskell.Liquid.Bare.Expand
 import Language.Haskell.Liquid.Bare.Lookup
 import Language.Haskell.Liquid.Bare.OfType
 import Language.Haskell.Liquid.Bare.Resolve
@@ -104,9 +103,9 @@ makeMeasureSpec :: (ModName, Ms.Spec BareType LocSymbol) -> BareM (Ms.MSpec Spec
 makeMeasureSpec (mod,spec) = inModule mod mkSpec
   where
     mkSpec = mkMeasureDCon =<< mkMeasureSort =<< m
-    m      = Ms.mkMSpec <$> (mapM expandMeasure $ Ms.measures spec)
+    m      = Ms.mkMSpec <$> (mapM resolveMeasure $ Ms.measures spec)
                         <*> return (Ms.cmeasures spec)
-                        <*> (mapM expandMeasure $ Ms.imeasures spec)
+                        <*> (mapM resolveMeasure $ Ms.imeasures spec)
 
 makeMeasureSpec' = mapFst (mapSnd uRType <$>) . Ms.dataConTypes . first (mapReft ur_reft)
 
@@ -146,21 +145,21 @@ isSimpleType t     = null tvs && isNothing (splitFunTy_maybe tb) where (tvs, tb)
 
 
 --------------------------------------------------------------------------------
--- Expand Measures -------------------------------------------------------------
+-- Resolve Measures -------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-expandMeasure m
-  = do eqns <- sequence $ expandMeasureDef <$> (eqns m)
+resolveMeasure m
+  = do eqns <- sequence $ resolveMeasureDef <$> (eqns m)
        return $ m { sort = generalize (sort m)
                   , eqns = eqns }
 
-expandMeasureDef :: Def LocSymbol -> BareM (Def LocSymbol)
-expandMeasureDef d
-  = do body <- expandMeasureBody (loc $ measure d) $ body d
+resolveMeasureDef :: Def LocSymbol -> BareM (Def LocSymbol)
+resolveMeasureDef d
+  = do body <- resolveMeasureBody (loc $ measure d) $ body d
        return $ d { body = body }
 
-expandMeasureBody :: SourcePos -> Body -> BareM Body
-expandMeasureBody l (P p)   = P   <$> (resolve l =<< expandPred p)
-expandMeasureBody l (R x p) = R x <$> (resolve l =<< expandPred p)
-expandMeasureBody l (E e)   = E   <$> resolve l e
+resolveMeasureBody :: SourcePos -> Body -> BareM Body
+resolveMeasureBody l (P p)   = P   <$> resolvePred l [] p
+resolveMeasureBody l (R x p) = R x <$> resolvePred l [] p
+resolveMeasureBody l (E e)   = E   <$> resolveExpr l [] e
 

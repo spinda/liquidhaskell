@@ -37,15 +37,14 @@ import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Types
 
 import Language.Haskell.Liquid.Bare.Env
-import Language.Haskell.Liquid.Bare.Expand
 import Language.Haskell.Liquid.Bare.Lookup
 import Language.Haskell.Liquid.Bare.Resolve
 
 --------------------------------------------------------------------------------
 
-ofBareType :: SourcePos -> BareType -> BareM SpecType
-ofBareType l
-  = ofBRType expandRTAliasApp (resolve l <=< expandReft)
+ofBareType :: SourcePos -> [Symbol] -> BareType -> BareM SpecType
+ofBareType l vargs
+  = ofBRType (expandRTAliasApp vargs) (resolveRReft l vargs)
 
 ofMeaSort :: BareType -> BareM SpecType
 ofMeaSort
@@ -75,10 +74,10 @@ mkSpecType l t
 
 mkSpecType' :: SourcePos -> [PVar BSort] -> BareType -> BareM SpecType
 mkSpecType' l πs t
-  = ofBRType expandRTAliasApp resolveReft t
+  = ofBRType (expandRTAliasApp []) resolveReft t
   where
     resolveReft
-      = (resolve l <=< expandReft) . txParam subvUReft (uPVar <$> πs) t
+      = resolveRReft l [] . txParam subvUReft (uPVar <$> πs) t
 
 
 txParam f πs t = f (txPvar (predMap πs t))
@@ -168,12 +167,12 @@ failRTAliasApp l rta _ _
     err = ErrIllegalAliasApp (sourcePosSrcSpan l) (pprint $ rtName rta) (sourcePosSrcSpan $ rtPos rta)
 
 
-expandRTAliasApp :: SourcePos -> RTAlias RTyVar SpecType -> [BareType] -> RReft -> BareM SpecType
-expandRTAliasApp l rta args r
+expandRTAliasApp :: [Symbol] -> SourcePos -> RTAlias RTyVar SpecType -> [BareType] -> RReft -> BareM SpecType
+expandRTAliasApp vargs l rta args r
   | length args == length αs + length εs
-    = do args' <- mapM (ofBareType l) args
-         let ts  = take (length αs) args'
-             αts = zipWith (\α t -> (α, toRSort t, t)) αs ts
+    = do let ts = take (length αs) args
+         ts' <- mapM (ofBareType l vargs) ts
+         let αts = zipWith (\α t -> (α, toRSort t, t)) αs ts'
          return $ subst su . (`strengthen` r) . subsTyVars_meet αts $ rtBody rta
   | otherwise
     = Ex.throw err

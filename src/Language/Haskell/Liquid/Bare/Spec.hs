@@ -37,7 +37,7 @@ import qualified Data.HashMap.Strict as M
 
 import Language.Fixpoint.Misc (concatMapM, group, mapFst, snd3)
 import Language.Fixpoint.Names (dropModuleNames, dropSym, isPrefixOfSym, qualifySymbol, symbolString, takeModuleNames)
-import Language.Fixpoint.Types (Qualifier(..), symbol)
+import Language.Fixpoint.Types (symbol)
 
 import Language.Haskell.Liquid.Dictionaries
 import Language.Haskell.Liquid.GhcMisc (getSourcePos, showPpr, symbolTyVar)
@@ -77,7 +77,7 @@ makeClasses cfg vs (mod, spec) = inModule mod $ mapM mkClass $ Ms.classes spec
 
 makeQualifiers (mod,spec) = inModule mod mkQuals
   where
-    mkQuals = mapM (\q -> resolve (q_pos q) q) $ Ms.qualifiers spec
+    mkQuals = mapM resolveQualifier $ Ms.qualifiers spec
 
 makeHints vs spec = varSymbols id vs $ Ms.decr spec
 makeLVar  vs spec = fmap fst <$> (varSymbols id vs $ [(v, ()) | v <- Ms.lvars spec])

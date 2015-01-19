@@ -195,7 +195,6 @@ Library
                     Language.Haskell.Liquid.Bare.Check
                     Language.Haskell.Liquid.Bare.DataType
                     Language.Haskell.Liquid.Bare.Env
-                    Language.Haskell.Liquid.Bare.Expand
                     Language.Haskell.Liquid.Bare.Existential
                     Language.Haskell.Liquid.Bare.GhcSpec
                     Language.Haskell.Liquid.Bare.Lookup
