@@ -3,6 +3,7 @@ branches:
  only:
   - master
   - parser
+  - resolve-redux
 
 env:
  - SMT=z3 TESTS=pos
