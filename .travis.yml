@@ -3,6 +3,7 @@ branches:
  only:
   - master
   - parser
+  - modular-verification
 
 env:
  - SMT=z3 TESTS=pos
