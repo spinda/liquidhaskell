@@ -13,7 +13,6 @@ import Id
 import NameSet
 import TyCon
 import Var
-import GHC (moduleNameString)
 
 import Control.Applicative ((<$>))
 import Control.Monad.Reader
