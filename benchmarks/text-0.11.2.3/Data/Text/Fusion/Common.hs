@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns, MagicHash, Rank2Types #-}
+{-@ LIQUID "--notermination" @-}
 -- |
 -- Module      : Data.Text.Fusion.Common
 -- Copyright   : (c) Bryan O'Sullivan 2009, 2012

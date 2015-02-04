@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns, ExistentialQuantification #-}
+{-@ LIQUID "--notermination" @-}
 -- |
 -- Module      : Data.Text.Fusion.Internal
 -- Copyright   : (c) Tom Harper 2008-2009,
