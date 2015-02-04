@@ -36,7 +36,7 @@ mkPtr   :: Addr# -> Ptr b
 mkPtr = undefined -- Ptr x 
 
 
-{-@ isNullPtr :: p:(Ptr a) -> {v:Bool | ((Prop v) <=> (isNullPtr p)) } @-}
+{-@ assume isNullPtr :: p:(Ptr a) -> {v:Bool | ((Prop v) <=> (isNullPtr p)) } @-}
 isNullPtr :: Ptr a -> Bool
 isNullPtr p = (p == nullPtr)
 {-# INLINE isNullPtr #-}
