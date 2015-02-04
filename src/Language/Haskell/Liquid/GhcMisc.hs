@@ -319,6 +319,9 @@ instance Hashable Var where
 instance Hashable TyCon where
   hashWithSalt = uniqueHash 
 
+instance Hashable ModuleName where
+  hashWithSalt = uniqueHash
+
 uniqueHash i = hashWithSalt i . getKey . getUnique
 
 -- slightly modified version of DynamicLoading.lookupRdrNameInModule

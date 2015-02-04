@@ -199,7 +199,7 @@ import Module                                   (moduleNameFS)
 import TypeRep                          hiding  (maybeParen, pprArrowChain)  
 import Var
 import Text.Printf
-import GHC                                      (HscEnv, ModuleName, moduleNameString)
+import GHC                                      (HscEnv, Module, ModuleName, moduleNameString)
 import GHC.Generics
 import Language.Haskell.Liquid.GhcMisc 
 
@@ -319,8 +319,6 @@ data GhcInfo = GI {
   , defVars  :: ![Var]
   , useVars  :: ![Var]
   , hqFiles  :: ![FilePath]
-  , imports  :: ![String]
-  , includes :: ![FilePath]
   , spec     :: !GhcSpec
   }
 
@@ -1418,7 +1416,11 @@ type Error = TError SpecType
 
 -- | INVARIANT : all Error constructors should have a pos field
 data TError t = 
-    ErrSubType { pos  :: !SrcSpan
+    ErrMissingSpec { pos     :: !SrcSpan -- always `noSrcSpan`
+                   , missing :: !Module
+                   }
+
+  | ErrSubType { pos  :: !SrcSpan
                , msg  :: !Doc 
                , ctx  :: !(M.HashMap Symbol t) 
                , tact :: !t
@@ -1501,6 +1503,10 @@ data TError t =
                 , hs   :: !Type
                 , texp :: !t
                 } -- ^ Mismatch between Liquid and Haskell types
+
+  | ErrImportCycle { pos    :: !SrcSpan
+                   , icycle :: ![ModuleName]
+                   } -- ^ Cyclic Imports Detected
   
   | ErrAliasCycle { pos    :: !SrcSpan
                   , acycle :: ![(SrcSpan, Doc)] 
@@ -1594,13 +1600,16 @@ data ModName = ModName !ModType !ModuleName deriving (Eq,Ord)
 instance Show ModName where
   show = getModString
 
+instance Hashable ModName where
+  hashWithSalt i (ModName _ x) = hashWithSalt i x
+
 instance Symbolic ModName where
   symbol (ModName _ m) = symbol m
 
 instance Symbolic ModuleName where
   symbol = symbol . moduleNameFS
 
-data ModType = Target | SrcImport | SpecImport deriving (Eq,Ord)
+data ModType = Target | SrcImport | SpecImport deriving (Eq,Ord,Show)
 
 isSrcImport (ModName SrcImport _) = True
 isSrcImport _                     = False

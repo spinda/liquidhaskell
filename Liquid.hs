@@ -1,7 +1,6 @@
 {-# LANGUAGE TupleSections  #-}
 
 import           Data.Monoid      (mconcat, mempty)
-import           System.Exit 
 import           Control.Applicative ((<$>))
 import           Control.DeepSeq
 import           Text.PrettyPrint.HughesPJ    
@@ -25,21 +24,14 @@ import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.TransformRec   
 import           Language.Haskell.Liquid.Annotate (mkOutput)
 
-main :: IO b
-main = do cfg0     <- getOpts
-          res      <- mconcat <$> mapM (checkOne cfg0) (files cfg0)
-          let ecode = resultExit $  {- traceShow "RESULT" $ -} o_result res
-          -- putStrLn  $ "ExitCode: " ++ show ecode
-          exitWith ecode
-
-checkOne :: Config -> FilePath -> IO (Output Doc)
-checkOne cfg0 t = getGhcInfo cfg0 t >>= either errOut (liquidOne t)
-  where
-    errOut r    = exitWithResult cfg0 t $ mempty { o_result = r}
+main :: IO ()
+main = do cfg0 <- getOpts
+          verifyTargets cfg0 (files cfg0) liquidOne
 
 liquidOne :: FilePath -> GhcInfo -> IO (Output Doc) 
 liquidOne target info = 
-  do donePhase Loud "Extracted Core using GHC"
+  do startPhase Loud $ "Verify: " ++ target
+     donePhase Loud "Extracted Core using GHC"
      let cfg   = config $ spec info 
      whenLoud  $ do putStrLn "**** Config **************************************************"
                     print cfg
@@ -95,4 +87,4 @@ solveCs cfg target cgi info dc
 --   where 
 --     str          = {-# SCC "PPcgi" #-} showpp cgi
 
- 
+

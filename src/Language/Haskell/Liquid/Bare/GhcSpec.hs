@@ -13,6 +13,7 @@ import Id
 import NameSet
 import TyCon
 import Var
+import GHC (moduleNameString)
 
 import Control.Applicative ((<$>))
 import Control.Monad.Reader
@@ -55,7 +56,7 @@ import Language.Haskell.Liquid.Bare.RefToLogic
 ---------- Top Level Output --------------------------------------
 ------------------------------------------------------------------
 
-makeGhcSpec :: Config -> ModName -> [CoreBind] -> [Var] -> [Var] -> NameSet -> HscEnv -> Either Error LogicMap
+makeGhcSpec :: Config -> ModName -> [CoreBind] -> [Var] -> [Var] -> NameSet -> HscEnv -> LogicMap
             -> [(ModName,Ms.BareSpec)]
             -> IO GhcSpec
 makeGhcSpec cfg name cbs vars defVars exports env lmap specs
@@ -66,8 +67,7 @@ makeGhcSpec cfg name cbs vars defVars exports env lmap specs
   where
     act       = makeGhcSpec' cfg cbs vars defVars exports specs
     throwLeft = either Ex.throw return
-    initEnv   = BE name mempty mempty mempty env lmap'
-    lmap'     = case lmap of {Left e -> Ex.throw e; Right x -> x}
+    initEnv   = BE name mempty mempty mempty env lmap
     
 postProcess :: [CoreBind] -> SEnv SortedReft -> GhcSpec -> GhcSpec
 postProcess cbs specEnv sp@(SP {..}) = sp { tySigs = tySigs', texprs = ts, asmSigs = asmSigs', dicts = dicts' }

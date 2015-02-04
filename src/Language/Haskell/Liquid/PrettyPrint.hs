@@ -27,7 +27,7 @@ module Language.Haskell.Liquid.PrettyPrint (
 import ErrUtils                         (ErrMsg)
 import HscTypes                         (SourceError)
 import SrcLoc                           -- (RealSrcSpan, SrcSpan (..))
-import GHC                              (Name, Class)
+import GHC                              (Name, Class, Module, ModuleName)
 import VarEnv                           (emptyTidyEnv)
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.GhcMisc
@@ -72,6 +72,12 @@ instance PPrint ParseError where
 
 -- instance PPrint LParseError where
 --   pprint (LPE _ msgs) = text "Parse Error: " <> vcat (map pprint msgs)
+
+instance PPrint Module where
+  pprint = pprDoc
+
+instance PPrint ModuleName where
+  pprint = pprDoc
 
 instance PPrint Var where
   pprint = pprDoc 

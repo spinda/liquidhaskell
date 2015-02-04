@@ -41,8 +41,9 @@ dropThd3 (x, y, _) = (x, y)
 
 replaceN n y ls = [if i == n then y else x | (x, i) <- zip ls [0..]]
 
-fourth4 (_,_,_,x) = x
+first4  (x,_,_,_) = x
 third4  (_,_,x,_) = x
+fourth4 (_,_,_,x) = x
 
 mapSndM f (x, y) = return . (x,) =<< f y
 

@@ -146,6 +146,9 @@ blankLine    = sizedText 5 " "
 ppError' :: (PPrint a) => Tidy -> Doc -> TError a -> Doc
 -----------------------------------------------------------------------
 
+ppError' _ dSp (ErrMissingSpec _ mod)
+  = dSp <+> text "Missing spec for module:" <+> pprint mod
+
 ppError' _ dSp (ErrAssType _ OCons _ _)
   = dSp <+> text "Constraint Check"
 
@@ -227,6 +230,11 @@ ppError' _ dSp (ErrMismatch _ x τ t)
   = dSp <+> text "Specified Type Does Not Refine Haskell Type for" <+> pprint x
     $+$ text "Haskell:" <+> pprint τ
     $+$ text "Liquid :" <+> pprint t
+
+ppError' _ dSp (ErrImportCycle _ icycle)
+  = dSp <+> text "Cyclic Import Cycle"
+    $+$ text "The following modules form a cycle:"
+    $+$ (nest 4 $ sepVcat blankLine $ map pprint icycle)
 
 ppError' _ dSp (ErrAliasCycle _ acycle)
   = dSp <+> text "Cyclic Alias Definitions"
