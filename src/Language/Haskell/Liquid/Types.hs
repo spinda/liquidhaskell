@@ -191,6 +191,7 @@ module Language.Haskell.Liquid.Types (
   , RDEnv, DEnv(..), RInstance(..)
 
   -- * Module Interface Information
+  , Interface(..), BInterface, RInterface
   , BTyCon (..)
   )
   where
@@ -1845,11 +1846,21 @@ instance Show DataCon where
 -- | Module Interface Information -------------------------
 -----------------------------------------------------------
 
+data Interface name ty tc = Intr
+  { intr_fnSigs  :: !(M.HashMap name ty)      -- ^ Exported function signatures
+  , intr_meaSigs :: !(M.HashMap name ty)      -- ^ Global measure scope for module
+  } deriving (Show, Generic)
+
+type BInterface = Interface Symbol BareType BTyCon
+type RInterface = Interface Symbol SpecType RTyCon
+
+
+-- TODO: Unify this with RTyCon, maybe?
 data BTyCon = BTyCon
   { btc_tc    :: !Symbol           -- ^ Type Constructor
   , btc_pvars :: ![BPVar]          -- ^ Predicate Parameters
   , btc_info  :: !TyConInfo        -- ^ TyConInfo
-  } deriving Generic
+  } deriving (Generic)
 
 instance Eq BTyCon where
   x == y = btc_tc x == btc_tc y

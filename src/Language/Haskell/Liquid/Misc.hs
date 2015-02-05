@@ -47,6 +47,8 @@ fourth4 (_,_,_,x) = x
 
 mapSndM f (x, y) = return . (x,) =<< f y
 
+first3  f (a,b,c) = (f a,b,c)
+
 firstM  f (a,b) = (,b) <$> f a
 secondM f (a,b) = (a,) <$> f b
 

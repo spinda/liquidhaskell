@@ -60,6 +60,7 @@ import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.ANFTransform
 import Language.Haskell.Liquid.Bare
 import Language.Haskell.Liquid.GhcMisc
+import Language.Haskell.Liquid.Interface
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
 
@@ -388,6 +389,8 @@ verifyModule cfg logicMap verify
            out <- liftIO $ verify file ghcInfo
            unless (o_result out == Safe)
                   (Ex.throw $ PhaseFailed "liquid" $ resultExit $ o_result out)
+
+           liftIO $ saveInterface file $ packInterface $ buildInterface bareSpec ghcSpec
 
            modify $ M.insert name (HsSpec hs)
 

@@ -1,4 +1,6 @@
-{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Language.Haskell.Liquid.Serialize (
     encode
@@ -75,4 +77,6 @@ instance Serialize Ty.TyConInfo
 instance Serialize Ty.SizeFn
 
 instance Serialize Vr.Variance
+
+instance Serialize Ty.BInterface
 
