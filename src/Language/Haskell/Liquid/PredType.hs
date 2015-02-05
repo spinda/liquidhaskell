@@ -47,9 +47,10 @@ import Data.Default
 makeTyConInfo = hashMapMapWithKey mkRTyCon . M.fromList
 
 mkRTyCon ::  TC.TyCon -> TyConP -> RTyCon
-mkRTyCon tc (TyConP αs' ps _ tyvariance predvariance size) = RTyCon tc pvs' (mkTyConInfo tc tyvariance predvariance size)
-  where τs   = [rVar α :: RSort |  α <- TC.tyConTyVars tc]
-        pvs' = subts (zip αs' τs) <$> ps
+mkRTyCon tc (TyConP αs' ps _ tyvariance predvariance size) = RTyCon tc pvs' (mkTyConInfo tc tyvariance predvariance size')
+  where τs    = [rVar α :: RSort |  α <- TC.tyConTyVars tc]
+        pvs'  = subts (zip αs' τs) <$> ps
+        size' = MeasureSize <$> size
 
 dataConPSpecType :: DataCon -> DataConP -> SpecType 
 dataConPSpecType dc (DataConP _ vs ps ls cs yts rt) = mkArrow vs ps ls ts' rt'

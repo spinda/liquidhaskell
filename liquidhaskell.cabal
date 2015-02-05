@@ -54,6 +54,8 @@ Executable liquid
                , array
                , hpc
                , bifunctors
+               , cereal
+               , cereal-text
                , cmdargs
                , containers
                , cpphs
@@ -91,6 +93,8 @@ Executable liquid
 --                , ghc==7.6.3
 --                , ansi-terminal
 --                , bifunctors
+--                , cereal
+--                , cereal-text
 --                , cmdargs
 --                , containers
 --                , cpphs
@@ -131,6 +135,8 @@ Library
                 , array
                 , hpc
                 , bifunctors
+                , cereal
+                , cereal-text
                 , cmdargs
                 , containers
                 , cpphs
@@ -195,6 +201,7 @@ Library
                     Language.Haskell.Liquid.Strata,
                     Language.Haskell.Liquid.Fresh,
                     Language.Haskell.Liquid.WiredIn,
+                    Language.Haskell.Liquid.Serialize,
                     Paths_liquidhaskell,
 
                     -- FIXME: These shouldn't really be exposed, but the linker complains otherwise...

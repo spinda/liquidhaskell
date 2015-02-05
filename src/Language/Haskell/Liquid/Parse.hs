@@ -765,9 +765,8 @@ dataConNameP
      pwr s  = "(" <> s <> ")"
 
 dataSizeP 
-  = (brackets $ (Just . mkFun) <$> locLowerIdP)
+  = brackets (Just <$> locLowerIdP)
   <|> return Nothing
-  where mkFun s = \x -> EApp (symbol <$> s) [EVar x]
 
 dataDeclP :: Parser DataDecl 
 dataDeclP = try dataDeclFullP <|> dataDeclSizeP

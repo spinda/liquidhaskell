@@ -39,6 +39,8 @@ module Language.Haskell.Liquid.Types (
   -- * Refined Type Constructors 
   , RTyCon (RTyCon, rtc_tc, rtc_info)
   , TyConInfo(..), defaultTyConInfo
+  , SizeFn(..)
+  , appSizeFn
   , rTyConPVs 
   , rTyConPropVs
   , isClassRTyCon, isClassType 
@@ -188,6 +190,8 @@ module Language.Haskell.Liquid.Types (
   -- * Refined Instances
   , RDEnv, DEnv(..), RInstance(..)
 
+  -- * Module Interface Information
+  , BTyCon (..)
   )
   where
 
@@ -386,7 +390,7 @@ data TyConP = TyConP { freeTyVarsTy :: ![RTyVar]
                      , freeLabelTy  :: ![Symbol]
                      , varianceTs   :: !VarianceInfo
                      , variancePs   :: !VarianceInfo 
-                     , sizeFun      :: !(Maybe (Symbol -> Expr))
+                     , sizeMeasure  :: !(Maybe LocSymbol)
                      } deriving (Data, Typeable)
 
 data DataConP = DataConP { dc_loc     :: !SourcePos
@@ -563,12 +567,20 @@ instance Default TyConInfo where
 data TyConInfo = TyConInfo
   { varianceTyArgs  :: !VarianceInfo             -- ^ variance info for type variables
   , variancePsArgs  :: !VarianceInfo             -- ^ variance info for predicate variables
-  , sizeFunction    :: !(Maybe (Symbol -> Expr)) -- ^ logical function that computes the size of the structure
+  , sizeFunction    :: !(Maybe SizeFn)           -- ^ logical function that computes the size of the structure
   } deriving (Generic, Data, Typeable)
-
 
 instance Show TyConInfo where 
   show (TyConInfo x y _) = show x ++ "\n" ++ show y
+
+
+data SizeFn = NumericSize
+            | MeasureSize LocSymbol
+              deriving (Eq, Show, Generic, Data, Typeable)
+
+appSizeFn :: SizeFn -> Symbol -> Expr
+appSizeFn NumericSize     x = EVar x
+appSizeFn (MeasureSize s) x = EApp (symbol <$> s) [EVar x]
 
 --------------------------------------------------------------------
 ---- Unified Representation of Refinement Types --------------------
@@ -842,10 +854,10 @@ data DataDecl   = D { tycName   :: LocSymbol
                                 -- ^ [DataCon, [(fieldName, fieldType)]]
                     , tycSrcPos :: !SourcePos
                                 -- ^ Source Position
-                    , tycSFun   :: (Maybe (Symbol -> Expr))
+                    , tycSFun   :: (Maybe LocSymbol)
                                 -- ^ Measure that should decrease in recursive calls
                     }
-     --              deriving (Show) 
+                    deriving (Generic)
 
 
 instance Eq DataDecl where
@@ -1666,7 +1678,7 @@ data Def ctor
   , ctor    :: ctor 
   , binds   :: [Symbol]
   , body    :: Body
-  } deriving (Show, Data, Typeable)
+  } deriving (Show, Data, Typeable, Generic)
 deriving instance (Eq ctor) => Eq (Def ctor)
 
 -- MOVE TO TYPES
@@ -1674,7 +1686,7 @@ data Body
   = E Expr          -- ^ Measure Refinement: {v | v = e } 
   | P Pred          -- ^ Measure Refinement: {v | (? v) <=> p }
   | R Symbol Pred   -- ^ Measure Refinement: {v | p}
-  deriving (Show, Eq, Data, Typeable)
+  deriving (Show, Eq, Data, Typeable, Generic)
 
 instance Subable (Measure ty ctor) where
   syms (M _ _ es)      = concatMap syms es
@@ -1712,7 +1724,7 @@ data RClass ty
            , rcSupers  :: [ty]
            , rcTyVars  :: [Symbol]
            , rcMethods :: [(LocSymbol,ty)]
-           } deriving (Show)
+           } deriving (Show, Generic)
 
 instance Functor RClass where
   fmap f (RClass n ss tvs ms) = RClass n (fmap f ss) tvs (fmap (second f) ms)
@@ -1828,3 +1840,26 @@ instance PPrint DataCon where
 
 instance Show DataCon where
   show = showpp
+
+-----------------------------------------------------------
+-- | Module Interface Information -------------------------
+-----------------------------------------------------------
+
+data BTyCon = BTyCon
+  { btc_tc    :: !Symbol           -- ^ Type Constructor
+  , btc_pvars :: ![BPVar]          -- ^ Predicate Parameters
+  , btc_info  :: !TyConInfo        -- ^ TyConInfo
+  } deriving Generic
+
+instance Eq BTyCon where
+  x == y = btc_tc x == btc_tc y
+
+instance Fixpoint BTyCon where
+  toFix (BTyCon c _ _) = pprint c
+
+instance PPrint BTyCon where
+  pprint = toFix
+
+instance Show BTyCon where
+  show = showpp
+

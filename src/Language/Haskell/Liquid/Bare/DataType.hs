@@ -75,7 +75,7 @@ meetPad t1 t2 = -- traceShow ("meetPad: " ++ msg) $
 
 
 ofBDataDecl :: Maybe DataDecl  -> (Maybe (LocSymbol, [Variance])) -> BareM ((TyCon, TyConP), [(DataCon, Located DataConP)])
-ofBDataDecl (Just (D tc as ps ls cts _ sfun)) maybe_invariance_info
+ofBDataDecl (Just (D tc as ps ls cts _ smeas)) maybe_invariance_info
   = do πs         <- mapM ofBPVar ps
        tc'        <- lookupGhcTyCon tc
        cts'       <- mapM (ofBDataCon lc tc' αs ps ls πs) cts
@@ -84,7 +84,7 @@ ofBDataDecl (Just (D tc as ps ls cts _ sfun)) maybe_invariance_info
        let varInfo = L.nub $  concatMap (getPsSig initmap True) tys
        let defaultPs = varSignToVariance varInfo <$> [0 .. (length πs - 1)]  
        let (tvarinfo, pvarinfo) = f defaultPs
-       return ((tc', TyConP αs πs ls tvarinfo pvarinfo sfun), (mapSnd (Loc lc) <$> cts'))
+       return ((tc', TyConP αs πs ls tvarinfo pvarinfo smeas), (mapSnd (Loc lc) <$> cts'))
     where 
        αs             = RTV . symbolTyVar <$> as
        n              = length αs
