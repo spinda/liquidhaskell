@@ -11,6 +11,7 @@ module Language.Haskell.Liquid.Interface (
 
 --------------------------------------------------------------------------------
 
+import GHC
 import NameSet
 
 import Control.Applicative
@@ -37,10 +38,13 @@ import qualified Language.Haskell.Liquid.Measure as Ms
 
 --------------------------------------------------------------------------------
 
-buildInterface :: Ms.BareSpec -> GhcSpec -> RInterface
-buildInterface _ ghcSpec
-  = Intr { intr_fnSigs  = M.fromList exportedFnSigs
-         , intr_meaSigs = M.fromList measureSigs
+buildInterface :: Integer -> Ms.BareSpec -> GhcSpec -> [ModuleName] -> RInterface
+buildInterface checksum bareSpec ghcSpec imports
+  = Intr { intr_checksum = checksum
+         , intr_imports  = imports
+         , intr_includes = Ms.includes bareSpec
+         , intr_fnSigs   = M.fromList exportedFnSigs
+         , intr_meaSigs  = M.fromList measureSigs
          }
   where
     -- TODO: Do we *need* to convert these all to Symbols?
@@ -59,8 +63,11 @@ buildInterface _ ghcSpec
 
 packInterface :: RInterface -> BInterface
 packInterface intr
-  = Intr { intr_fnSigs  = M.map packSpecType (intr_fnSigs  intr)
-         , intr_meaSigs = M.map packSpecType (intr_meaSigs intr)
+  = Intr { intr_checksum = intr_checksum intr
+         , intr_imports  = intr_imports intr
+         , intr_includes = intr_includes intr
+         , intr_fnSigs   = M.map packSpecType (intr_fnSigs  intr)
+         , intr_meaSigs  = M.map packSpecType (intr_meaSigs intr)
          }
 
 

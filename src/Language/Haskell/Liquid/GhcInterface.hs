@@ -41,7 +41,7 @@ import Control.DeepSeq
 import Control.Applicative  hiding (empty)
 import Data.Monoid hiding ((<>))
 import Data.List (foldl', find, (\\), delete, nub)
-import Data.Maybe (catMaybes, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, isJust, mapMaybe, maybeToList)
 
 import qualified Data.HashSet        as S
 import qualified Data.HashMap.Strict as M
@@ -49,8 +49,10 @@ import qualified Data.Graph          as G
 import qualified Data.Tree           as T
   
 import System.Console.CmdArgs.Verbosity (whenLoud)
-import System.Directory (removeFile, createDirectory, doesFileExist)
+import System.Directory (removeFile, createDirectory, doesFileExist, getModificationTime)
 import System.Exit (exitWith)
+
+import Data.Time.Clock.POSIX
 
 import Language.Fixpoint.Interface (resultExit)
 import Language.Fixpoint.Misc
@@ -96,7 +98,7 @@ verifyTargets' cfg targets verify
        logicMap <- makeLogicMap
 
        depGraph <- buildMakeGraph cfg targets
-       let plan = buildVerificationPlan depGraph
+       plan     <- liftIO $ buildVerificationPlan (idirs cfg) depGraph
        executeVerificationPlan cfg logicMap verify plan
 
 
@@ -146,41 +148,47 @@ makeLogicMap
 
 --------------------------------------------------------------------------------
 
-data SpecData = HsSpec   HsSpec
-              | SpecFile SpecFile
-              | NoSpec   NoSpec
+type SpecData = Either GoodSpec BadSpec
 
-data GoodSpec = GNoSpec NoSpec
+data GoodSpec = GHsSpec
+                  { gs_name    :: ModuleName
+                  , gs_file    :: FilePath
+                  , gs_spec    :: BInterface
+                  , gs_hquals  :: S.HashSet FilePath
+                  , gs_summary :: ModSummary
+                  }
+              | GSpecFile
+                  { gs_name    :: ModuleName
+                  , gs_file    :: FilePath
+                  , gs_spec    :: BInterface
+                  , gs_hquals  :: S.HashSet FilePath
+                  }
+              | GNoSpec
+                  { gs_name    :: ModuleName
+                  , gs_hquals  :: S.HashSet FilePath
+                  }
 
-data BadSpec = BHsSpec   { bs_name   :: ModuleName
-                         , bs_deps   :: [ModuleName]
-                         , bs_hsSpec :: HsSpec
-                         }
-             | BSpecFile { bs_name     :: ModuleName
-                         , bs_deps     :: [ModuleName]
-                         , bs_specFile :: SpecFile
-                         }
-
-data HsSpec = HS { hs_file    :: FilePath
-                 , hs_hspec   :: Ms.BareSpec
-                 , hs_ispec   :: Maybe Ms.BareSpec
-                 , hs_hquals  :: S.HashSet FilePath
-                 , hs_summary :: ModSummary
+data BadSpec = BHsSpec
+                 { bs_name     :: ModuleName
+                 , bs_file     :: FilePath
+                 , bs_hspec    :: Ms.BareSpec
+                 , bs_ispec    :: Maybe Ms.BareSpec
+                 , bs_hquals   :: S.HashSet FilePath
+                 , bs_summary  :: ModSummary
+                 }
+             | BSpecFile
+                 { bs_name     :: ModuleName
+                 , bs_file     :: FilePath
+                 , bs_spec     :: Ms.BareSpec
+                 , bs_hquals   :: S.HashSet FilePath
                  }
 
-data SpecFile = SF { sf_file   :: FilePath
-                   , sf_spec   :: Ms.BareSpec
-                   , sf_hquals :: S.HashSet FilePath
-                   }
-
-data NoSpec = NS { ns_hquals :: S.HashSet FilePath
-                 }
 
 type Graph key node = (G.Graph, G.Vertex -> (node, key, [key]), key -> Maybe G.Vertex)
 type DepGraph       = Graph ModuleName SpecData
 
 type GoodSpecs = M.HashMap ModuleName GoodSpec
-type BadSpecs  = [BadSpec]
+type BadSpecs  = [([ModuleName], BadSpec)]
 
 --------------------------------------------------------------------------------
 
@@ -202,9 +210,24 @@ buildMakeGraph cfg targets
                               , icycle = map snd3 vs
                               }
 
-scanSpec :: FilePath -> IO (ModName, Ms.BareSpec)
-scanSpec
-  = parseSpec
+
+scanSpec :: FilePath -> IO (Either BInterface Ms.BareSpec)
+scanSpec specFile
+  = maybe parse validate =<< loadInterface specFile
+  where
+    parse
+      = do (_, spec) <- parseSpec specFile
+           return $ Right spec
+    validate intr
+      -- TODO: Move validation to Interface module(?)
+      = do checksum <- computeChecksum specFile
+           if checksum == intr_checksum intr
+              then return $ Left intr
+              else parse
+
+computeChecksum :: FilePath -> IO Integer
+computeChecksum file
+  = (round . utcTimeToPOSIXSeconds) <$> getModificationTime file
 
 
 analyzeTargets :: [FilePath] -> [FilePath] -> Ghc [(SpecData, ModuleName, [ModuleName])]
@@ -215,32 +238,35 @@ analyzeTargets idirs targets
 
 analyzeSummary :: [FilePath] -> ModSummary -> Ghc (SpecData, ModuleName, [ModuleName])
 analyzeSummary idirs summary
-  = do file      <- getSourcePath summary
-       (_, spec) <- liftIO $ scanSpec file
-       hquals    <- S.fromList <$> moduleHquals idirs (Just file) name [] (Ms.includes spec)
-
-       -- TODO: Temporary hack necessary until .lqhi transition
-       (spinfo, _, _) <- analyzeSpecImport idirs name
-
-       return ( HsSpec $ HS { hs_file    = file
-                            , hs_hspec   = spec
-                            , hs_ispec   = shoehorn spinfo
-                            , hs_summary = summary
-                            , hs_hquals  = hquals
-                            }
-              , name
-              , map (unLoc . ideclName . unLoc) (ms_textual_imps summary)
-              )
+  = do file <- getSourcePath summary
+       sd   <- process file =<< (liftIO $ scanSpec file)
+       let imports = map (unLoc . ideclName . unLoc) (ms_textual_imps summary)
+       return (sd, name, imports)
   where
     name
       = moduleName $ ms_mod summary
 
-    shoehorn (NoSpec _)
-      = Nothing
-    shoehorn (SpecFile sf)
-      = Just (sf_spec sf)
-    shoehorn (HsSpec _)
-      = error "err : hack : shoehorn : analyzeSummary"
+    process file (Left intr)
+      = do -- TODO: Move hquals into lqhi
+           hquals <- S.fromList <$> moduleHquals idirs (Just file) name [] (intr_includes intr)
+           return $ Left $ GHsSpec
+             { gs_name    = name
+             , gs_file    = file
+             , gs_spec    = intr
+             , gs_hquals  = hquals
+             , gs_summary = summary
+             }
+    process file (Right hspec)
+      = do hquals <- S.fromList <$> moduleHquals idirs (Just file) name [] (Ms.includes hspec)
+           ispec  <- liftIO $ findParseSpecFile idirs name
+           return $ Right $ BHsSpec
+             { bs_name    = name
+             , bs_file    = file
+             , bs_hspec   = hspec
+             , bs_ispec   = ispec
+             , bs_hquals  = hquals
+             , bs_summary = summary
+             }
 
 getSourcePath :: ModSummary -> Ghc FilePath
 getSourcePath summary
@@ -252,7 +278,8 @@ getSourcePath summary
                        , missing = ms_mod summary
                        }
 
--- TODO: Rewrite with a better/higher-level method of recursion
+
+-- TODO: Rewrite with a better/higher-level method of recursion(?)
 descendImportGraph :: [FilePath]
                    -> S.HashSet ModuleName
                    -> [(SpecData, ModuleName, [ModuleName])]
@@ -269,58 +296,125 @@ descendImportGraph idirs seen batch
 
 analyzeSpecImport :: [FilePath] -> ModuleName -> Ghc (SpecData, ModuleName, [ModuleName])
 analyzeSpecImport idirs name
-  = do file   <- liftIO $ getFileInDirs (extModuleName (moduleNameString name) Spec) idirs
-       spec   <- liftIO $ maybe (return Nothing) (fmap (Just . snd) . parseSpec) file
-       hquals <- S.fromList <$> moduleHquals idirs file name [] (maybe [] Ms.includes spec)
-       return $
-         case spec of
-           Nothing ->
-             ( NoSpec $ NS { ns_hquals = hquals
-                           }
+  = do file <- liftIO $ findSpecFile idirs name
+       maybe noSpec scan file
+  where
+    noSpec
+      = do hquals <- S.fromList <$> moduleHquals idirs Nothing name [] []
+           return $
+             ( Left $ GNoSpec
+                 { gs_name   = name
+                 , gs_hquals = hquals
+                 }
              , name
              , []
              )
-           Just spec' ->
-             ( SpecFile $ SF { sf_file   = safeFromJust "analyzeSpecImport : fromJust" file
-                             , sf_spec   = spec'
-                             , sf_hquals = hquals
-                             }
-             , name
-             , map (mkModuleName . symbolString) (Ms.imports spec')
-             )
+    scan file
+      = do scanned <- liftIO $ scanSpec file
+           case scanned of
+             Left intr ->
+               do let imps = map moduleNameString (intr_imports intr)
+                  hquals <- S.fromList <$> moduleHquals idirs (Just file) name imps (intr_includes intr)
+                  return $
+                    ( Left $ GSpecFile
+                        { gs_name   = name
+                        , gs_file   = file
+                        , gs_spec   = intr
+                        , gs_hquals = hquals
+                        }
+                    , name
+                    , intr_imports intr
+                    )
+             Right spec ->
+               do let imps = map symbolString (Ms.imports spec)
+                  hquals <- S.fromList <$> moduleHquals idirs (Just file) name imps (Ms.includes spec)
+                  return $
+                    ( Right $ BSpecFile
+                        { bs_name   = name
+                        , bs_file   = file
+                        , bs_spec   = spec
+                        , bs_hquals = hquals
+                        }
+                    , name
+                    , map mkModuleName imps
+                    )
+
+
+findSpecFile :: [FilePath] -> ModuleName -> IO (Maybe FilePath)
+findSpecFile idirs name
+  = getFileInDirs (extModuleName (moduleNameString name) Spec) idirs
+
+findParseSpecFile :: [FilePath] -> ModuleName -> IO (Maybe Ms.BareSpec)
+findParseSpecFile idirs name
+  = do file <- findSpecFile idirs name
+       case file of
+         Nothing ->
+           return Nothing
+         Just file' ->
+           (Just . snd) <$> parseSpec file'
 
 --------------------------------------------------------------------------------
 
-buildVerificationPlan :: DepGraph -> (BadSpecs, GoodSpecs)
-buildVerificationPlan graph@(digraph, resolveVertex, _)
-  = (catMaybes badSpecs, goodSpecs)
+buildVerificationPlan :: [FilePath] -> DepGraph -> IO (BadSpecs, {- GoodSpecs -} M.HashMap ModuleName SpecData)
+buildVerificationPlan idirs graph@(digraph, resolveVertex, _)
+  = do (badSpecs, goodSpecs) <- runStateT (mapM (analyzeNode idirs graph) sorted) mempty
+       return (catMaybes badSpecs, goodSpecs)
   where
     sorted
       = map resolveVertex $ reverse $ G.topSort digraph
-    (badSpecs, goodSpecs)
-      = runState (mapM (analyzeNode graph) sorted) mempty
 
-analyzeNode :: DepGraph -> (SpecData, ModuleName, [ModuleName]) -> State GoodSpecs (Maybe BadSpec)
-analyzeNode graph (sd, name, _)
+analyzeNode :: [FilePath]
+            -> DepGraph
+            -> (SpecData, ModuleName, [ModuleName])
+            -> StateT {- GoodSpecs -} (M.HashMap ModuleName SpecData) IO (Maybe ([ModuleName], BadSpec))
+analyzeNode idirs graph (sd, name, _)
   = go sd
   where
-    go (NoSpec ns)
-      = do modify $ M.insert name (GNoSpec ns)
+    go :: Either GoodSpec BadSpec -> StateT (M.HashMap ModuleName SpecData) IO (Maybe ([ModuleName], BadSpec))
+    go (Right badSpec)
+      = return $ Just
+          ( getAllDeps graph (bs_name badSpec)
+          , badSpec
+          )
+
+    go (Left gs@(GNoSpec {}))
+      = do modify $ M.insert name (Left gs)
            return Nothing
 
-    go (HsSpec hs)
-      = return $ Just $
-          BHsSpec { bs_name   = name
-                  , bs_deps   = getAllDeps graph name
-                  , bs_hsSpec = hs
-                  }
+    go (Left goodSpec)
+      = do env <- get
+           let deps = getAllDeps graph (gs_name goodSpec)
+           if null deps || all (isJust . flip M.lookup env) deps
+              then do {- modify $ M.insert name goodSpec
+                         return Nothing
+                       -}
+                      badSpec <- liftIO $ parse goodSpec
+                      modify $ M.insert name (Right badSpec)
+                      return Nothing
+              else do badSpec <- liftIO $ parse goodSpec
+                      return $ Just (deps, badSpec)
 
-    go (SpecFile sf)
-      = return $ Just $
-          BSpecFile { bs_name     = name
-                    , bs_deps     = getAllDeps graph name
-                    , bs_specFile = sf
-                    }
+    parse gs@(GHsSpec {})
+      = do (_, hspec) <- parseSpec $ gs_file gs
+           ispec      <- findParseSpecFile idirs (gs_name gs)
+           return $ BHsSpec
+              { bs_name    = gs_name gs
+              , bs_file    = gs_file gs
+              , bs_hspec   = hspec
+              , bs_ispec   = ispec
+              , bs_hquals  = gs_hquals gs
+              , bs_summary = gs_summary gs
+              }
+    parse gs@(GSpecFile {})
+      = do (_, spec) <- parseSpec $ gs_file gs
+           return $ BSpecFile
+             { bs_name   = gs_name gs
+             , bs_file   = gs_file gs
+             , bs_spec   = spec
+             , bs_hquals = gs_hquals gs
+             }
+    parse (GNoSpec {})
+      = error "parse GNoSpec"
 
 getAllDeps :: DepGraph -> ModuleName -> [ModuleName]
 getAllDeps (digraph, resolveVertex, lookupVertex) name
@@ -333,22 +427,20 @@ getAllDeps (digraph, resolveVertex, lookupVertex) name
 executeVerificationPlan :: Config
                         -> LogicMap
                         -> (FilePath -> GhcInfo -> IO (Output Doc))
-                        -> (BadSpecs, GoodSpecs)
+                        -> (BadSpecs, {- GoodSpecs -} M.HashMap ModuleName SpecData)
                         -> Ghc ()
 executeVerificationPlan cfg logicMap verify (badSpecs, goodSpecs)
-  = evalStateT (mapM_ (verifyModule cfg logicMap verify) badSpecs) (M.map shoehorn goodSpecs)
-  where
-    shoehorn (GNoSpec ns) = NoSpec ns
+  = evalStateT (mapM_ (verifyModule cfg logicMap verify) badSpecs) goodSpecs
 
 verifyModule :: Config
              -> LogicMap
              -> (FilePath -> GhcInfo -> IO (Output Doc))
-             -> BadSpec
-             -> StateT (M.HashMap ModuleName SpecData) Ghc ()
+             -> ([ModuleName], BadSpec)
+             -> StateT {- GoodSpecs -} (M.HashMap ModuleName SpecData) Ghc ()
 verifyModule cfg logicMap verify
   = go
   where
-    go (BHsSpec name deps hs@(HS file bareSpec _ hquals summary))
+    go (deps, bhs@(BHsSpec name file bareSpec _ hquals summary))
       = do liftIO $ putStrLn $ "=== " ++ showpp name ++ " ==="
 
            let mod   = ms_mod summary
@@ -390,18 +482,25 @@ verifyModule cfg logicMap verify
            unless (o_result out == Safe)
                   (Ex.throw $ PhaseFailed "liquid" $ resultExit $ o_result out)
 
-           liftIO $ saveInterface file $ packInterface $ buildInterface bareSpec ghcSpec
+           -- TODO: Include ispec in checksum
+           -- TODO: Move checksum code to Interface module
+           checksum <- liftIO $ computeChecksum file
+           liftIO $ saveInterface file $ packInterface $ buildInterface checksum bareSpec ghcSpec deps
 
-           modify $ M.insert name (HsSpec hs)
+           modify $ M.insert name (Right bhs)
 
-    go (BSpecFile name _ sf)
-      = modify $ M.insert name (SpecFile sf)
+    go (deps, bsf@(BSpecFile {}))
+      = do modify $ M.insert (bs_name bsf) (Right bsf)
+           -- TODO: Create proper .lqhi file from spec file
+           let bareSpec = bs_spec bsf
+           checksum <- liftIO $ computeChecksum (bs_file bsf)
+           liftIO $ saveInterface (bs_file bsf) $ packInterface $ Intr checksum deps (Ms.includes bareSpec) mempty mempty
 
     noTerm (m, spec)
       = (m, spec { Ms.decr=mempty, Ms.lazy=mempty, Ms.termexprs=mempty })
 
 retrieveSpecs :: [ModuleName]
-              -> StateT (M.HashMap ModuleName SpecData) Ghc [(ModName, Ms.BareSpec)]
+              -> StateT {- GoodSpecs -} (M.HashMap ModuleName SpecData) Ghc [(ModName, Ms.BareSpec)]
 retrieveSpecs deps
   = do env <- get
        return $ concatMap (go env) deps
@@ -409,41 +508,33 @@ retrieveSpecs deps
       -- TOOD: Put out a proper error on missing dep
     go env dep
       = case safeFromJust "retrieveSpecs : fromJust" $ M.lookup dep env of
-          NoSpec _ ->
+          Left (GNoSpec {}) ->
             []
-          HsSpec hs ->
+          Right bhs@(BHsSpec {}) ->
             [ ( ModName SrcImport dep
-              , hs_hspec hs
+              , bs_hspec bhs
               )
-            ] ++ shoehorn dep (hs_ispec hs)
-          SpecFile sf ->
+            ] ++ (maybeToList $ (ModName SrcImport dep, ) <$> bs_ispec bhs)
+          Right bsf@(BSpecFile {}) ->
             [ ( ModName SpecImport dep
-              , sf_spec sf
+              , bs_spec bsf
               )
             ]
-
-    shoehorn _ Nothing
-      = []
-    shoehorn dep (Just ispec)
-      = [ ( ModName SpecImport dep
-          , ispec
-          )
-        ]
+          _ ->
+            error "TODO: Fix up retrieveSpecs when possible"
 
 retrieveHquals :: [ModuleName]
-              -> StateT (M.HashMap ModuleName SpecData) Ghc (S.HashSet FilePath)
+              -> StateT {- GoodSpecs -} (M.HashMap ModuleName SpecData) Ghc (S.HashSet FilePath)
 retrieveHquals deps
   = do env <- get
        return $ S.unions $ map (go env) deps
   where
     go env dep
       = case safeFromJust "retrieveHquals : fromJust" $ M.lookup dep env of
-          NoSpec ns ->
-            ns_hquals ns
-          HsSpec hs ->
-            hs_hquals hs
-          SpecFile sf ->
-            sf_hquals sf
+          Left gs ->
+            gs_hquals gs
+          Right bs ->
+            bs_hquals bs
 
 
 -- TODO: Temporary hack until proper .lqhi support is in

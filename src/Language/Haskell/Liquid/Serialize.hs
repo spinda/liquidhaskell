@@ -24,6 +24,8 @@ import Language.Fixpoint.Types as Fx
 import qualified Language.Haskell.Liquid.Types    as Ty
 import qualified Language.Haskell.Liquid.Variance as Vr
 
+import qualified GHC as GHC
+
 instance (Eq k, Hashable k, Serialize k, Serialize v) => Serialize (M.HashMap k v) where
   put = put . M.toList
   get = M.fromList <$> get
@@ -77,6 +79,10 @@ instance Serialize Ty.TyConInfo
 instance Serialize Ty.SizeFn
 
 instance Serialize Vr.Variance
+
+instance Serialize GHC.ModuleName where
+  put = put . GHC.moduleNameString
+  get = GHC.mkModuleName <$> get
 
 instance Serialize Ty.BInterface
 

@@ -257,6 +257,9 @@ instance Show Class where
 instance Show TyCon where
   show = showPpr
 
+instance Show ModuleName where
+  show = showPpr
+
 sourcePosSrcSpan   :: SourcePos -> SrcSpan
 sourcePosSrcSpan = srcLocSpan . sourcePosSrcLoc 
 

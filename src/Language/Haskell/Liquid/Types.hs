@@ -1846,9 +1846,13 @@ instance Show DataCon where
 -- | Module Interface Information -------------------------
 -----------------------------------------------------------
 
+-- TODO: Store hquals in here
 data Interface name ty tc = Intr
-  { intr_fnSigs  :: !(M.HashMap name ty)      -- ^ Exported function signatures
-  , intr_meaSigs :: !(M.HashMap name ty)      -- ^ Global measure scope for module
+  { intr_checksum :: !Integer
+  , intr_imports  :: ![ModuleName]
+  , intr_includes :: ![FilePath]
+  , intr_fnSigs   :: !(M.HashMap name ty)      -- ^ Exported function signatures
+  , intr_meaSigs  :: !(M.HashMap name ty)      -- ^ Global measure scope for module
   } deriving (Show, Generic)
 
 type BInterface = Interface Symbol BareType BTyCon
