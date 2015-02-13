@@ -1,7 +1,5 @@
 module spec Data.Text.Fusion where
 
-import Data.Text.Fusion.Common
-
 stream        :: t:Data.Text.Internal.Text
               -> {v:Data.Text.Fusion.Internal.Stream Char | (slen v) = (tlength t)}
 reverseStream :: t:Data.Text.Internal.Text

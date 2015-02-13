@@ -1,9 +1,5 @@
 module spec Foreign.Storable where
 
-import Foreign.Ptr
--- DON'T do this, we can't import HS files from SPEC files
--- import Language.Haskell.Liquid.Foreign
-
 predicate PValid P N         = ((0 <= N) && (N < (plen P)))   
 
 Foreign.Storable.poke        :: (Foreign.Storable.Storable a)

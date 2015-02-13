@@ -1,7 +1,5 @@
 module spec GHC.Classes where
 
-import GHC.Types
-
 not     :: x:GHC.Types.Bool -> {v:GHC.Types.Bool | (Prop(v) <=> ~Prop(x))}
 (&&)    :: x:GHC.Types.Bool -> y:GHC.Types.Bool
         -> {v:GHC.Types.Bool | (Prop(v) <=> (Prop(x) && Prop(y)))}

@@ -1,9 +1,5 @@
 module spec GHC.Base where
 
-import GHC.Prim
-import GHC.Classes
-import GHC.Types
-
 embed GHC.Types.Int      as int
 embed Prop               as bool
 

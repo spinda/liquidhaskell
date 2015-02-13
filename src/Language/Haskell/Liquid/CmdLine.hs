@@ -195,7 +195,7 @@ mkOpts cfg
        -- idirs' <- if null (idirs cfg) then single <$> getIncludeDir else return (idirs cfg)
        id0 <- getIncludeDir
        return  $ cfg { files = files' }
-                     { idirs = (dropFileName <$> files') ++ [id0] ++ idirs cfg }
+                     { idirs = {- (dropFileName <$> files') ++ -} [id0] ++ idirs cfg }
                               -- tests fail if you flip order of idirs'
 
 ---------------------------------------------------------------------------------------
