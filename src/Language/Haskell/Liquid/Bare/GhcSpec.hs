@@ -29,7 +29,7 @@ import qualified Data.HashSet        as S
 
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names (takeWhileSym)
-import Language.Fixpoint.Types (Expr(..), SEnv, SortedReft, Symbol, TCEmb, fromListSEnv, insertSEnv, mkSubst, subst, substa, symbol)
+import Language.Fixpoint.Types (Expr(..), SEnv, SortedReft, Symbol, TCEmb, fromListSEnv, insertSEnv, subst, substa, symbol)
 
 import Language.Haskell.Liquid.Dictionaries
 import Language.Haskell.Liquid.GhcMisc (getSourcePos, sourcePosSrcSpan)
@@ -47,7 +47,7 @@ import Language.Haskell.Liquid.Bare.DataType
 import Language.Haskell.Liquid.Bare.Env
 import Language.Haskell.Liquid.Bare.Existential
 import Language.Haskell.Liquid.Bare.Measure
-import Language.Haskell.Liquid.Bare.Misc (makeSymbols, mkVarExpr)
+import Language.Haskell.Liquid.Bare.Misc (mkVarSubst)
 import Language.Haskell.Liquid.Bare.Plugged
 import Language.Haskell.Liquid.Bare.RTEnv
 import Language.Haskell.Liquid.Bare.Spec
@@ -58,16 +58,16 @@ import Language.Haskell.Liquid.Bare.RefToLogic
 ---------- Top Level Output --------------------------------------
 ------------------------------------------------------------------
 
-makeGhcSpec :: Config -> ModName -> [CoreBind] -> [Var] -> [Var] -> NameSet -> HscEnv -> Either Error LogicMap
+makeGhcSpec :: Config -> ModName -> [CoreBind] -> [Var] -> [Var] -> [Var] -> NameSet -> HscEnv -> Either Error LogicMap
             -> [(ModName,Ms.BareSpec)]
             -> IO GhcSpec
-makeGhcSpec cfg name cbs vars defVars exports env lmap specs
+makeGhcSpec cfg name cbs vars defVars dcVars exports env lmap specs
   
   = do sp <- throwLeft =<< execBare act initEnv
        let renv = ghcSpecEnv sp cbs 
        throwLeft $ checkGhcSpec specs renv $ postProcess cbs renv sp
   where
-    act       = makeGhcSpec' cfg cbs vars defVars exports specs
+    act       = makeGhcSpec' cfg cbs vars defVars dcVars exports specs
     throwLeft = either Ex.throw return
     initEnv   = BE name mempty mempty mempty env lmap' mempty
     lmap'     = case lmap of {Left e -> Ex.throw e; Right x -> x}
@@ -98,18 +98,18 @@ ghcSpecEnv sp cbs    = fromListSEnv binds
     isString s       = rTypeSort emb stringrSort == s
 
 ------------------------------------------------------------------------------------------------
-makeGhcSpec' :: Config -> [CoreBind] -> [Var] -> [Var] -> NameSet -> [(ModName, Ms.BareSpec)] -> BareM GhcSpec
+makeGhcSpec' :: Config -> [CoreBind] -> [Var] -> [Var] -> [Var] -> NameSet -> [(ModName, Ms.BareSpec)] -> BareM GhcSpec
 ------------------------------------------------------------------------------------------------
-makeGhcSpec' cfg cbs vars defVars exports specs
+makeGhcSpec' cfg cbs vars defVars dcVars exports specs
   = do name                                    <- gets modName
        makeRTEnv specs
        (tycons, datacons, dcSs, tyi, embs)     <- makeGhcSpecCHOP1 specs
        modify                                   $ \be -> be { tcEnv = tyi }
        (cls, mts)                              <- second mconcat . unzip . mconcat <$> mapM (makeClasses cfg vars) specs
-       (measures, cms', ms', cs', xs')         <- makeGhcSpecCHOP2 cbs specs dcSs datacons cls embs
+       (measures, cms', ms', cs')              <- makeGhcSpecCHOP2 cbs specs dcSs datacons cls embs
        (invs, ialias, sigs, asms)              <- makeGhcSpecCHOP3 cfg vars defVars specs name mts embs
-       syms                                    <- makeSymbols (vars ++ map fst cs') xs' (sigs ++ asms ++ cs') ms' (invs ++ (snd <$> ialias))
-       let su  = mkSubst [ (x, mkVarExpr v) | (x, v) <- syms]
+       let syms = [ (symbol v, v) | v <- vars ++ dcVars ]
+       let su   = mkVarSubst syms
        return (emptySpec cfg)
          >>= makeGhcSpec0 cfg defVars exports name
          >>= makeGhcSpec1 vars embs tyi exports name sigs asms cs' ms' cms' su 
@@ -216,8 +216,7 @@ makeGhcSpecCHOP2 cbs specs dcSelectors datacons cls embs
        let cms'         = [ (x, Loc l $ cSort t) | (Loc l x, t) <- cms ]
        let ms'          = [ (x, Loc l t) | (Loc l x, t) <- ms, isNothing $ lookup x cms' ]
        let cs'          = [ (v, Loc (getSourcePos v) (txRefSort tyi embs t)) | (v, t) <- meetDataConSpec cs (datacons ++ cls)]
-       let xs'          = val . fst <$> ms
-       return (measures, cms', ms', cs', xs')
+       return (measures, cms', ms', cs')
 
 
 data ReplaceEnv = RE { _re_env  :: M.HashMap Symbol Symbol

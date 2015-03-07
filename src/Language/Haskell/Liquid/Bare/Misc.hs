@@ -1,9 +1,7 @@
 module Language.Haskell.Liquid.Bare.Misc (
-    makeSymbols
+    joinVar
 
-  , joinVar
-
-  , mkVarExpr
+  , mkVarSubst
 
   , MapTyVarST(..)
   , initMapSt
@@ -25,32 +23,13 @@ import Data.Maybe (isNothing)
 
 import qualified Data.List as L
 
-import Language.Fixpoint.Misc (sortDiff, sortNub)
-import Language.Fixpoint.Types (Expr(..), Reft(..), Reftable(..), emptySEnv, memberSEnv, symbol, syms, toReft)
+import Language.Fixpoint.Types (Expr(..), Reftable(..), mkSubst)
 
 import Language.Haskell.Liquid.GhcMisc (showPpr)
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Types
 
-import Language.Haskell.Liquid.Bare.Env
-
 -- TODO: This is where unsorted stuff is for now. Find proper places for what follows.
-
--- WTF does this function do?
-makeSymbols vs xs' xts yts ivs
-  = do svs <- gets varEnv
-       return [ (x,v') | (x,v) <- svs, x `elem` xs, let (v',_,_) = joinVar vs (v,x,x)]
-    where
-      xs    = sortNub $ zs ++ zs' ++ zs''
-      zs    = concatMap freeSymbols (snd <$> xts) `sortDiff` xs'
-      zs'   = concatMap freeSymbols (snd <$> yts) `sortDiff` xs'
-      zs''  = concatMap freeSymbols ivs           `sortDiff` xs'
-      
-freeSymbols ty = sortNub $ concat $ efoldReft (\_ _ -> []) (\ _ -> ()) f (\_ -> id) emptySEnv [] (val ty)
-  where 
-    f γ _ r xs = let Reft (v, _) = toReft r in 
-                 [ x | x <- syms r, x /= v, not (x `memberSEnv` γ)] : xs
-
 
 -------------------------------------------------------------------------------
 -- Renaming Type Variables in Haskell Signatures ------------------------------
@@ -108,10 +87,10 @@ mapTyRVar α a s@(MTVST αas err)
 
 
 
+mkVarSubst syms
+  = mkSubst [ (x, mkVarExpr v) | (x, v) <- syms, isFunVar v ]
 
-mkVarExpr v 
-  | isFunVar v = EApp (varFunSymbol v) []
-  | otherwise  = EVar (symbol v)
+mkVarExpr v = EApp (varFunSymbol v) []
 
 varFunSymbol = dummyLoc . dataConSymbol . idDataCon 
 

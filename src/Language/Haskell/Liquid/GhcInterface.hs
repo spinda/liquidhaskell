@@ -104,7 +104,7 @@ getGhcInfo' cfg0 target
       let letVs           = letVars     coreBinds
       let derVs           = derivedVars coreBinds $ mgi_is_dfun modguts
       logicmap           <- liftIO makeLogicMap 
-      (spec, imps, incs) <- moduleSpec cfg coreBinds (impVs ++ defVs) letVs name' modguts tgtSpec logicmap impSpecs'
+      (spec, imps, incs) <- moduleSpec cfg coreBinds (impVs ++ defVs) letVs datacons name' modguts tgtSpec logicmap impSpecs'
       liftIO              $ whenLoud $ putStrLn $ "Module Imports: " ++ show imps
       hqualFiles         <- moduleHquals modguts paths target imps incs
       return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles imps incs spec 
@@ -236,7 +236,7 @@ moduleHquals mg paths target imps incs
 -- | Extracting Specifications (Measures + Assumptions) ------------------------
 --------------------------------------------------------------------------------
  
-moduleSpec cfg cbs vars defVars target mg tgtSpec logicmap impSpecs
+moduleSpec cfg cbs vars defVars dcVars target mg tgtSpec logicmap impSpecs
   = do addImports  impSpecs
        addContext  $ IIModule $ moduleName $ mgi_module mg
        env        <- getSession
@@ -245,7 +245,7 @@ moduleSpec cfg cbs vars defVars target mg tgtSpec logicmap impSpecs
                                            | (_,spec) <- specs
                                            , x <- Ms.imports spec
                                            ]
-       ghcSpec    <- liftIO $ makeGhcSpec cfg target cbs vars defVars exports env logicmap specs
+       ghcSpec    <- liftIO $ makeGhcSpec cfg target cbs vars defVars dcVars exports env logicmap specs
        return      (ghcSpec, imps, Ms.includes tgtSpec)
     where
       exports    = mgi_exports mg
