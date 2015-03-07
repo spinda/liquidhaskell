@@ -3,6 +3,7 @@ branches:
  only:
   - master
   - parser
+  - ghc-symbols
 
 env:
  - SMT=z3 TESTS=Unit/pos
