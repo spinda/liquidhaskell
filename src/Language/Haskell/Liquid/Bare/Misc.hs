@@ -1,7 +1,5 @@
 module Language.Haskell.Liquid.Bare.Misc (
-    joinVar
-
-  , MapTyVarST(..)
+    MapTyVarST(..)
   , initMapSt
   , runMapTyVars
   , mapTyVars
@@ -16,11 +14,8 @@ import Control.Applicative ((<$>))
 import Control.Monad.Error (throwError)
 import Control.Monad.State
 
-import qualified Data.List as L
-
 import Language.Fixpoint.Types (Reftable(..))
 
-import Language.Haskell.Liquid.GhcMisc (showPpr)
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Types
 
@@ -79,19 +74,4 @@ mapTyRVar α a s@(MTVST αas err)
       Just a' | a == a'   -> return s
               | otherwise -> throwError err
       Nothing             -> return $ MTVST ((α,a):αas) err
-
-
-
-
--- the Vars we lookup in GHC don't always have the same tyvars as the Vars
--- we're given, so return the original var when possible.
--- see tests/pos/ResolvePred.hs for an example
-joinVar :: [Var] -> (Var, s, t) -> (Var, s, t)
-joinVar vs (v,s,t) = case L.find ((== showPpr v) . showPpr) vs of
-                       Just v' -> (v',s,t)
-                       Nothing -> (v,s,t)
-
-
-
-
 

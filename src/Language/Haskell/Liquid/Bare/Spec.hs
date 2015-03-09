@@ -51,7 +51,6 @@ import Language.Haskell.Liquid.Bare.Check (checkDefAsserts)
 import Language.Haskell.Liquid.Bare.Env
 import Language.Haskell.Liquid.Bare.Existential
 import Language.Haskell.Liquid.Bare.Lookup
-import Language.Haskell.Liquid.Bare.Misc (joinVar)
 import Language.Haskell.Liquid.Bare.OfType
 import Language.Haskell.Liquid.Bare.Resolve
 import Language.Haskell.Liquid.Bare.SymSort
@@ -176,6 +175,13 @@ makeSpec cfg vs xbs
        unless (noCheckUnknown cfg) $ checkDefAsserts env vbs xbs
        map (addFst3 mod) <$> mapM mkVarSpec vbs
 
+-- the Vars we lookup in GHC don't always have the same tyvars as the Vars
+-- we're given, so return the original var when possible.
+-- see tests/pos/ResolvePred.hs for an example
+joinVar :: [Var] -> (Var, s, t) -> (Var, s, t)
+joinVar vs (v,s,t) = case L.find ((== showPpr v) . showPpr) vs of
+                       Just v' -> (v',s,t)
+                       Nothing -> (v,s,t)
 
 lookupIds = mapM lookup
   where
