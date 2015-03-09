@@ -29,7 +29,7 @@ import qualified Data.HashSet        as S
 
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names (takeWhileSym)
-import Language.Fixpoint.Types (Expr(..), SEnv, SortedReft, Symbol, TCEmb, fromListSEnv, insertSEnv, mkSubst, subst, substa, symbol)
+import Language.Fixpoint.Types (Expr(..), SEnv, SortedReft, Symbol, TCEmb, fromListSEnv, insertSEnv, subst, substa, symbol)
 
 import Language.Haskell.Liquid.Dictionaries
 import Language.Haskell.Liquid.GhcMisc (getSourcePos, sourcePosSrcSpan)
@@ -47,10 +47,10 @@ import Language.Haskell.Liquid.Bare.DataType
 import Language.Haskell.Liquid.Bare.Env
 import Language.Haskell.Liquid.Bare.Existential
 import Language.Haskell.Liquid.Bare.Measure
-import Language.Haskell.Liquid.Bare.Misc (makeSymbols, mkVarExpr)
 import Language.Haskell.Liquid.Bare.Plugged
 import Language.Haskell.Liquid.Bare.RTEnv
 import Language.Haskell.Liquid.Bare.Spec
+import Language.Haskell.Liquid.Bare.Symbols
 import Language.Haskell.Liquid.Bare.SymSort
 import Language.Haskell.Liquid.Bare.RefToLogic
 
@@ -108,8 +108,7 @@ makeGhcSpec' cfg cbs vars defVars exports specs
        (cls, mts)                              <- second mconcat . unzip . mconcat <$> mapM (makeClasses cfg vars) specs
        (measures, cms', ms', cs', xs')         <- makeGhcSpecCHOP2 cbs specs dcSs datacons cls embs
        (invs, ialias, sigs, asms)              <- makeGhcSpecCHOP3 cfg vars defVars specs name mts embs
-       syms                                    <- makeSymbols (vars ++ map fst cs') xs' (sigs ++ asms ++ cs') ms' (invs ++ (snd <$> ialias))
-       let su  = mkSubst [ (x, mkVarExpr v) | (x, v) <- syms]
+       let (syms, su)                           = makeSymbols (vars ++ map fst cs') xs' (sigs ++ asms ++ cs') ms' (invs ++ (snd <$> ialias))
        return (emptySpec cfg)
          >>= makeGhcSpec0 cfg defVars exports name
          >>= makeGhcSpec1 vars embs tyi exports name sigs asms cs' ms' cms' su 

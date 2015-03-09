@@ -212,6 +212,7 @@ Library
                     Language.Haskell.Liquid.Bare.Plugged
                     Language.Haskell.Liquid.Bare.Resolve
                     Language.Haskell.Liquid.Bare.RTEnv
+                    Language.Haskell.Liquid.Bare.Symbols
                     Language.Haskell.Liquid.Bare.SymSort
                     Language.Haskell.Liquid.Bare.Spec
 
