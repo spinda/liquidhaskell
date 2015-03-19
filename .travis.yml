@@ -18,15 +18,29 @@ env:
 
 ghc: 7.8
 
+cache:
+  apt: true
+  directories:
+      - $HOME/.cabal
+
 before_install:
+ # Uninstall liquidhaskell and liquid-fixpoint, in case they've been cached
+ # alongside our other dependencies.
+ - ghc-pkg unregister --force liquidhaskell || true
+ - ghc-pkg unregister --force liquid-fixpoint || true
+ 
  - travis_retry sudo apt-get update
  - travis_retry sudo apt-get install ocaml camlidl
  - travis_retry cabal update
+
+ # Install the latest liquid-fixpoint from the git repository.
  - git clone git://github.com/ucsd-progsys/liquid-fixpoint.git /tmp/fixpoint
  - pushd /tmp/fixpoint
      && travis_retry cabal install --only-dependencies
      && cabal install -fbuild-external
      && popd
+
+ # Grab the SMT solver binary from gridaphobe's page.
  - curl "http://goto.ucsd.edu/~gridaphobe/$SMT" -o "$HOME/.cabal/bin/$SMT"
  - chmod a+x "$HOME/.cabal/bin/$SMT"
 
