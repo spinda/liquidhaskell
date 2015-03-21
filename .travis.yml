@@ -1,5 +1,12 @@
 language: haskell
 
+sudo: false
+
+cache:
+  apt: true
+  directories:
+      - $HOME/.cabal
+
 env:
  - SMT=z3 TESTS=Unit/pos
  - SMT=z3 TESTS=Unit/neg
@@ -18,17 +25,9 @@ env:
 
 ghc: 7.8
 
-before_install:
- - scripts/travis install_ocaml
- - scripts/travis setup_cabal
- - scripts/travis install_fixpoint
- - scripts/travis install_smt "$SMT"
-
 install:
- - scripts/travis install_cabal_deps
+ - scripts/travis setup_env
 
 script:
- - scripts/travis do_build
- - scripts/travis do_test "$TESTS" "$SMT"
- - scripts/travis test_source_pkg
+ - scripts/travis boxme
 

@@ -109,6 +109,33 @@ function test_source_pkg {
   popd dist
 }
 
+function setup_env {
+  mkdir cow_store
+  mkdir unionfs
+}
+
+function boxme {
+  ./mount.unionfs -o cow,relaxed_permissions,hide_meta_files ./cow_store=RW:/=RO:./cow_store=RW ./unionfs
+  ./proot-x86_64 -r ./unionfs -b /dev:/dev -b /home:/home -b /proc:/proc -b /sys:/sys -b /tmp:/tmp -0 scripts/travis execute "$1" "$2"
+}
+
+function execute {
+  local tests="$1"
+  local smt="$2"
+  
+  install_ocaml
+  setup_cabal
+  install_fixpoint
+  install_smt "$smt"
+
+  setup_env
+  install_cabal_deps
+
+  do_build
+  do_test "$tests" "$smt"
+  test_source_pkg
+}
+
 ## Run Test Stage
 
 stage="$1"
