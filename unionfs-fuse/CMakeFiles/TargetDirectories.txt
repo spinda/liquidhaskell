@@ -1,0 +1,2 @@
+/home/vagrant/unionfs-fuse/src/CMakeFiles/unionfs.dir
+/home/vagrant/unionfs-fuse/src/CMakeFiles/unionfsctl.dir
