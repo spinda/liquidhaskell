@@ -111,12 +111,12 @@ function test_source_pkg {
 
 function setup_env {
   mkdir cow_store
-  mkdir unionfs
+  mkdir union_mount
 }
 
 function boxme {
-  ./mount.unionfs -o cow,relaxed_permissions,hide_meta_files ./cow_store=RW:/=RO:./cow_store=RW ./unionfs
-  ./proot-x86_64 -r ./unionfs -b /dev:/dev -b /home:/home -b /proc:/proc -b /sys:/sys -b /tmp:/tmp -0 scripts/travis execute "$1" "$2"
+  ./mount.unionfs -o cow,relaxed_permissions,hide_meta_files ./cow_store=RW:/=RO:./cow_store=RW ./union_mount
+  ./proot-x86_64 -r ./union_mount -b /dev:/dev -b /home:/home -b /proc:/proc -b /sys:/sys -b /tmp:/tmp -0 scripts/travis execute "$1" "$2"
 }
 
 function execute {
