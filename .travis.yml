@@ -7,6 +7,10 @@ cache:
   directories:
       - $HOME/.cabal
 
+addons:
+  apt_packages:
+  - fuse
+
 env:
  - SMT=z3 TESTS=Unit/pos
  - SMT=z3 TESTS=Unit/neg
