@@ -30,6 +30,8 @@ env:
 ghc: 7.8
 
 install:
+ - apt-cache policy fuse
+ - stat /dev/fuse
  - scripts/travis setup_env
 
 script:
