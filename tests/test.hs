@@ -23,6 +23,8 @@ import Test.Tasty.Options
 import Test.Tasty.Runners
 import Text.Printf
 
+import Debug.Trace
+
 main :: IO ()
 main = run =<< tests
   where
@@ -108,7 +110,10 @@ knownToFail Z3   = [ "tests/pos/linspace.hs" ]
 testCmd :: FilePath -> FilePath -> FilePath -> SmtSolver -> String
 ---------------------------------------------------------------------------
 testCmd liquid dir file smt
-  = printf "cd %s && %s --verbose --smtsolver %s %s" dir liquid (show smt) file
+  = printf "cd %s && %s%s --smtsolver %s %s" dir liquid verbosity (show smt) file
+  where verbosity | trace file False              = undefined
+                  | file == "WhileM.hs"           = ""
+                  | otherwise                     = " --verbose"
 
 
 textIgnored = [ "Data/Text/Axioms.hs"
