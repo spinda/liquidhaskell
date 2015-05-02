@@ -23,8 +23,6 @@ import Test.Tasty.Options
 import Test.Tasty.Runners
 import Text.Printf
 
-import Debug.Trace
-
 main :: IO ()
 main = run =<< tests
   where
@@ -111,10 +109,12 @@ testCmd :: FilePath -> FilePath -> FilePath -> SmtSolver -> String
 ---------------------------------------------------------------------------
 testCmd liquid dir file smt
   = printf "cd %s && %s%s --smtsolver %s %s" dir liquid verbosity (show smt) file
-  where verbosity | trace file False              = undefined
-                  | file == "WhileM.hs"           = ""
+  where verbosity | file `elem` noVerbose         = ""
                   | otherwise                     = " --verbose"
 
+
+noVerbose = [ "WhileM.hs"
+            ]
 
 textIgnored = [ "Data/Text/Axioms.hs"
               , "Data/Text/Encoding/Error.hs"
