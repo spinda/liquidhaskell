@@ -207,25 +207,7 @@ Library
                     Language.Haskell.Liquid.Visitors,
                     Language.Haskell.Liquid.WiredIn,
                     Language.Haskell.Liquid.Names,
-                    Paths_liquidhaskell,
-
-                    -- FIXME: These shouldn't really be exposed, but the linker complains otherwise...
-                    Language.Haskell.Liquid.Bare.RefToLogic
-                    Language.Haskell.Liquid.Bare.Check
-                    Language.Haskell.Liquid.Bare.DataType
-                    Language.Haskell.Liquid.Bare.Env
-                    Language.Haskell.Liquid.Bare.Expand
-                    Language.Haskell.Liquid.Bare.Existential
-                    Language.Haskell.Liquid.Bare.GhcSpec
-                    Language.Haskell.Liquid.Bare.Lookup
-                    Language.Haskell.Liquid.Bare.Measure
-                    Language.Haskell.Liquid.Bare.Misc
-                    Language.Haskell.Liquid.Bare.OfType
-                    Language.Haskell.Liquid.Bare.Plugged
-                    Language.Haskell.Liquid.Bare.Resolve
-                    Language.Haskell.Liquid.Bare.RTEnv
-                    Language.Haskell.Liquid.Bare.SymSort
-                    Language.Haskell.Liquid.Bare.Spec
+                    Paths_liquidhaskell
 
    if impl(ghc < 7.10)
      exposed-modules:
