@@ -57,6 +57,7 @@ Executable liquid
                , ghc>=7.8.3
                , ansi-terminal
                , template-haskell
+               , liquidhaskell-lang
                , time
                , array
                , hpc
@@ -132,6 +133,7 @@ Library
                 , ghc>=7.8.3
                 , ansi-terminal
                 , template-haskell
+                , liquidhaskell-lang
                 , time
                 , array
                 , hpc
@@ -207,7 +209,11 @@ Library
                     Language.Haskell.Liquid.Visitors,
                     Language.Haskell.Liquid.WiredIn,
                     Language.Haskell.Liquid.Names,
-                    Paths_liquidhaskell
+                    Paths_liquidhaskell,
+
+                    Language.Haskell.Liquid.Spec.Extract,
+                    Language.Haskell.Liquid.Spec.Reify,
+                    Language.Haskell.Liquid.Spec.WiredIns
 
    if impl(ghc < 7.10)
      exposed-modules:
