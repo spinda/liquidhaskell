@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module Test1 where
+module Test1 () where
 
 import LiquidHaskell
 
