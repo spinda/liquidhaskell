@@ -2,10 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Language.Haskell.Liquid.Spec.WiredIns (
-    WiredM
-  , runWiredM
-
-  , WiredIns(..)
+    WiredIns(..)
   , loadWiredIns
   ) where
 
@@ -32,41 +29,6 @@ import qualified Language.Haskell.TH.Syntax as TH
 
 import Language.Haskell.Liquid.RType
 
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-newtype WiredM m a = WiredM { unWiredM :: ReaderT WiredIns m a }
-                     deriving ( Functor, Applicative, Monad
-                              , MonadIO, MonadReader WiredIns
-                              )
-
-instance GhcMonad m => GhcMonad (WiredM m) where
-  getSession = WiredM $ lift getSession
-  setSession = WiredM . lift . setSession
-
-instance ExceptionMonad m => ExceptionMonad (WiredM m) where
-  gcatch act handle = WiredM $ do
-    env <- ask
-    lift $ runReaderT (unWiredM act) env
-             `gcatch` \e -> runReaderT (unWiredM $ handle e) env
-  gmask f = WiredM $ do
-    env <- ask
-    lift $ gmask $ \ghc_restore ->
-      runReaderT (unWiredM $ f $ wired_restore ghc_restore) env
-    where
-      wired_restore ghc_restore act = WiredM $ do
-         env <- ask
-         lift $ ghc_restore $ runReaderT (unWiredM act) env
-
-instance (Monad m, HasDynFlags m) => HasDynFlags (WiredM m) where
-  getDynFlags = WiredM $ lift getDynFlags
-
-runWiredM :: GhcMonad m => WiredM m a -> m a
-runWiredM act = runReaderT (unWiredM act) =<< loadWiredIns
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 data WiredIns =
@@ -164,8 +126,6 @@ loadWiredIns' = WiredIns
   <*> lookupPromoteTHDataCon 'Div
   <*> lookupPromoteTHDataCon 'Mod
 
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 lookupTHName :: GhcMonad m => String -> (TyThing -> Maybe a) -> TH.Name -> m a
