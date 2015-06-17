@@ -45,8 +45,6 @@ import Language.Haskell.Liquid.Spec.WiredIns
 -- Reify RType -----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
--- FIXME: Application edge-cases
-
 reifyRTy :: Type -> SpecM SpecType
 
 reifyRTy (TyVarTy tv)  =
