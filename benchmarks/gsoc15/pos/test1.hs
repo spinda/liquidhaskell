@@ -13,5 +13,8 @@ plus :: [lq| x:Int -> y:Int -> Plus x y |]
 plus = undefined
 
 ok :: Nat -> Nat
-ok x = plus x 1
+ok x = plus x one
+
+one :: [lq|{v:Int | v = 1}|]
+one = undefined
 
