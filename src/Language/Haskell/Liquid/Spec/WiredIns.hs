@@ -16,6 +16,7 @@ import DataCon
 import DynFlags
 import Exception
 import HscTypes
+import HsImpExp
 import Panic
 import TcRnMonad
 import TcSplice
@@ -113,7 +114,15 @@ data WiredIns =
     } 
 
 loadWiredIns :: GhcMonad m => m WiredIns
-loadWiredIns = WiredIns
+loadWiredIns = do
+  ctxt <- getContext
+  setContext $ ctxt ++ [IIDecl $ simpleImportDecl $ mkModuleName "Language.Haskell.Liquid.RType"]
+  wis  <- loadWiredIns'
+  setContext $ ctxt
+  return wis
+
+loadWiredIns' :: GhcMonad m => m WiredIns
+loadWiredIns' = WiredIns
   <$> lookupTHTyCon ''Bind
   <*> lookupTHTyCon ''Refine
 
