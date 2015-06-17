@@ -4,7 +4,6 @@ module Language.Haskell.Liquid.Qualifier (
   specificationQualifiers
   ) where
 
-import Language.Haskell.Liquid.Bare
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.GhcMisc  (getSourcePos)
 import Language.Haskell.Liquid.PredType
