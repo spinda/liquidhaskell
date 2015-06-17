@@ -25,7 +25,7 @@ makeGhcSpec cfg exports mod = runSpecM $ makeGhcSpec' cfg exports mod
 
 makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> SpecM GhcSpec
 makeGhcSpec' cfg exports mod = do
-  topSigs <- extractTopSigs mod
+  topSigs <- extractTySigs mod
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) topSigs
                            , exports  = exports
                            , tcEmbeds = M.singleton intTyCon intFTyCon
