@@ -27,8 +27,6 @@ import Var
 
 import qualified Outputable as Out
 
-import Control.Monad.Reader
-
 import Data.Monoid
 
 import Text.Parsec.Pos
@@ -40,6 +38,7 @@ import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Types
 
+import Language.Haskell.Liquid.Spec.Env
 import Language.Haskell.Liquid.Spec.WiredIns
 
 --------------------------------------------------------------------------------
@@ -48,7 +47,7 @@ import Language.Haskell.Liquid.Spec.WiredIns
 
 -- FIXME: Application edge-cases
 
-reifyRTy :: GhcMonad m => Type -> WiredM m SpecType
+reifyRTy :: Type -> SpecM SpecType
 
 reifyRTy (TyVarTy tv)  =
   return $ rVar tv
@@ -56,7 +55,7 @@ reifyRTy (TyVarTy tv)  =
 reifyRTy (AppTy t1 t2) =
   RAppTy <$> reifyRTy t1 <*> reifyRTy t2 <*> pure mempty
 
-reifyRTy (TyConApp tc as) = go =<< ask
+reifyRTy (TyConApp tc as) = go =<< getWiredIns
   where
     go wis
       | tc == tc_Refine wis, [a, b, p] <- as =
@@ -80,28 +79,28 @@ reifyRTy ty@(LitTy _)  =
 -- Reify RReft -----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyRReft :: GhcMonad m => Type -> Type -> WiredM m RReft
+reifyRReft :: Type -> Type -> SpecM RReft
 reifyRReft b r = do
   r' <- reifyReft b r
   return $ (mempty :: RReft) { ur_reft = r' }
 
 
-reifyReft :: GhcMonad m => Type -> Type -> WiredM m Reft
+reifyReft :: Type -> Type -> SpecM Reft
 reifyReft b r = do
   b' <- reifySymbol b
   r' <- reifyRefa r
   return $ Reft (b', r')
 
 
-reifyRefa :: GhcMonad m => Type -> WiredM m Refa
+reifyRefa :: Type -> SpecM Refa
 reifyRefa = fmap Refa . reifyPred
 
 --------------------------------------------------------------------------------
 -- Reify Pred -----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyPred :: GhcMonad m => Type -> WiredM m Pred
-reifyPred ty = (`go` ty) =<< ask
+reifyPred :: Type -> SpecM Pred
+reifyPred ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc as)
       | tc == pc_PTrue wis, [] <- as =
@@ -130,8 +129,8 @@ reifyPred ty = (`go` ty) =<< ask
 -- Reify Expr ------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyExpr :: GhcMonad m => Type -> WiredM m Expr
-reifyExpr ty = (`go` ty) =<< ask
+reifyExpr :: Type -> SpecM Expr
+reifyExpr ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc as)
       | tc == pc_ECon wis, [c] <- as =
@@ -151,16 +150,16 @@ reifyExpr ty = (`go` ty) =<< ask
     go _ _ = malformed "expression" ty
 
 
-reifyConstant :: GhcMonad m => Type -> WiredM m Constant
-reifyConstant ty = (`go` ty) =<< ask
+reifyConstant :: Type -> SpecM Constant
+reifyConstant ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [a])
       | tc == pc_I wis =
         I <$> reifyNat a
     go _ _ = malformed "constant" ty
 
-reifyBrel :: GhcMonad m => Type -> WiredM m Brel
-reifyBrel ty = (`go` ty) =<< ask
+reifyBrel :: Type -> SpecM Brel
+reifyBrel ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [])
       | tc == pc_Eq  wis = return Eq
@@ -173,8 +172,8 @@ reifyBrel ty = (`go` ty) =<< ask
       | tc == pc_Une wis = return Une
     go _ _ = malformed "binary relation" ty
 
-reifyBop :: GhcMonad m => Type -> WiredM m Bop
-reifyBop ty = (`go` ty) =<< ask
+reifyBop :: Type -> SpecM Bop
+reifyBop ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [])
       | tc == pc_Plus  wis = return Plus
@@ -188,7 +187,7 @@ reifyBop ty = (`go` ty) =<< ask
 -- Reify Data Constructor ------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyDataCon :: GhcMonad m => Type -> WiredM m Symbol
+reifyDataCon :: Type -> SpecM Symbol
 reifyDataCon (TyConApp tc _)
   | Just dc <- isPromotedDataCon_maybe tc =
     return $ varSymbol $ dataConWorkId dc
@@ -199,17 +198,16 @@ reifyDataCon ty =
 -- Reify Components ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyBind :: GhcMonad m => Type -> WiredM m (Symbol, Type)
-reifyBind ty = (`go` ty) =<< ask
+reifyBind :: Type -> SpecM (Symbol, Type)
+reifyBind ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [b, a])
       | tc == tc_Bind wis = (, a) <$> reifySymbol b
-    -- FIXME: Generate a fresh symbol for each default binder
-    go _ _ = return (tempSymbol "db" 0, ty)
+    go _ _ = ((, ty) . tempSymbol "db") <$> mkFreshInt
 
 
-reifyLocated :: GhcMonad m => (Type -> WiredM m a) -> Type -> WiredM m (Located a)
-reifyLocated f ty = (`go` ty) =<< ask
+reifyLocated :: (Type -> SpecM a) -> Type -> SpecM (Located a)
+reifyLocated f ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [_, filename, startLine, startCol, endLine, endCol, x])
       | tc == pc_L wis = do
@@ -224,18 +222,18 @@ reifyLocated f ty = (`go` ty) =<< ask
                      x'
     go _ _ = malformed "location annotation" ty
 
-reifyLocSymbol :: GhcMonad m => Type -> WiredM m LocSymbol
+reifyLocSymbol :: Type -> SpecM LocSymbol
 reifyLocSymbol = reifyLocated reifySymbol
 
 
-reifyString :: GhcMonad m => Type -> WiredM m String
+reifyString :: Type -> SpecM String
 reifyString (LitTy (StrTyLit s)) = return $ unpackFS s
 reifyString ty                   = malformed "symbol" ty
 
-reifySymbol :: GhcMonad m => Type -> WiredM m Symbol
+reifySymbol :: Type -> SpecM Symbol
 reifySymbol = fmap symbol . reifyString
 
-reifyNat :: GhcMonad m => Type -> WiredM m Integer
+reifyNat :: Type -> SpecM Integer
 reifyNat (LitTy (NumTyLit n)) = return n
 reifyNat ty                   = malformed "natural number" ty
 
@@ -243,7 +241,7 @@ reifyNat ty                   = malformed "natural number" ty
 -- Utility Functions -----------------------------------------------------------
 --------------------------------------------------------------------------------
 
-malformed :: GhcMonad m => String -> Type -> m a
+malformed :: String -> Type -> m a
 malformed desc ty = panic $
   "Malformed LiquidHaskell " ++ desc ++ " encoding: " ++ showPpr ty
 
