@@ -16,14 +16,14 @@ import Language.Fixpoint.Types
 
 import Language.Haskell.Liquid.Types
 
+import Language.Haskell.Liquid.Spec.Env
 import Language.Haskell.Liquid.Spec.Extract
-import Language.Haskell.Liquid.Spec.WiredIns
 
 
-makeGhcSpec :: GhcMonad m => Config -> NameSet -> TypecheckedModule -> m GhcSpec
-makeGhcSpec cfg exports mod = runWiredM $ makeGhcSpec' cfg exports mod
+makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> Ghc GhcSpec
+makeGhcSpec cfg exports mod = runSpecM $ makeGhcSpec' cfg exports mod
 
-makeGhcSpec' :: GhcMonad m => Config -> NameSet -> TypecheckedModule -> WiredM m GhcSpec
+makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> SpecM GhcSpec
 makeGhcSpec' cfg exports mod = do
   topSigs <- extractTopSigs mod
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) topSigs
