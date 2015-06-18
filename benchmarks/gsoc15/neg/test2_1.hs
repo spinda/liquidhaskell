@@ -9,7 +9,7 @@ import LiquidHaskell
 
 type Plus x y = [lq|{v:Int | v = x + y}|]
 
-plus :: [lq| x:Int -> y:Int -> Plus x y |]
+plus :: [lq| x:Int |] -> [lq| y:Int |] -> Plus x y
 plus = undefined
 
 ok :: Nat -> Nat
