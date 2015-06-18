@@ -56,6 +56,8 @@ reifyRTy (AppTy t1 t2) =
 reifyRTy (TyConApp tc as) = go =<< getWiredIns
   where
     go wis
+      | tc == tc_Bind wis, [s, b, _a] <- as =
+        invalidBind =<< reifyLocated reifySymbol s b
       | tc == tc_Refine wis, [a, b, p] <- as =
         strengthen <$> reifyRTy a <*> reifyRReft b p
       | Just (tenv, rhs, as') <- tcExpandTyCon_maybe tc as =
@@ -135,8 +137,8 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
         ECon <$> reifyConstant c
       | tc == pc_EBdr wis, [s] <- as =
         EVar <$> reifySymbol s
-      | tc == pc_ECtr wis, [_, t] <- as =
-        (EVar . val) <$> reifyLocated reifyDataCon t
+      | tc == pc_ECtr wis, [_, s, t] <- as =
+        (EVar . val) <$> reifyLocated reifyDataCon s t
       | tc == pc_ENeg wis, [e] <- as =
         ENeg <$> reifyExpr e
       | tc == pc_EBin wis, [bop, e1, e2] <- as =
@@ -196,19 +198,11 @@ reifyDataCon ty =
 -- Reify Components ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyBind :: Type -> SpecM (Symbol, Type)
-reifyBind ty = (`go` ty) =<< getWiredIns
+reifyLocated :: (Type -> SpecM a) -> Type -> Type -> SpecM (Located a)
+reifyLocated f s x = (`go` s) =<< getWiredIns
   where
-    go wis (TyConApp tc [b, a])
-      | tc == tc_Bind wis = (, a) <$> reifySymbol b
-    go _ _ = ((, ty) . tempSymbol "db") <$> mkFreshInt
-
-
-reifyLocated :: (Type -> SpecM a) -> Type -> SpecM (Located a)
-reifyLocated f ty = (`go` ty) =<< getWiredIns
-  where
-    go wis (TyConApp tc [_, filename, startLine, startCol, endLine, endCol, x])
-      | tc == pc_L wis = do
+    go wis (TyConApp tc [filename, startLine, startCol, endLine, endCol])
+      | tc == pc_Span wis = do
         filename'  <- reifyString filename
         startLine' <- fromIntegral <$> reifyNat startLine
         startCol'  <- fromIntegral <$> reifyNat startCol
@@ -218,10 +212,16 @@ reifyLocated f ty = (`go` ty) =<< getWiredIns
         return $ Loc (newPos filename' startLine' startCol')
                      (newPos filename' endLine'   endCol'  )
                      x'
-    go _ _ = malformed "location annotation" ty
+      | otherwise = malformed "loocation annotation" s
+    go _ _ = malformed "location annotation" s
 
-reifyLocSymbol :: Type -> SpecM LocSymbol
-reifyLocSymbol = reifyLocated reifySymbol
+
+reifyBind :: Type -> SpecM (Symbol, Type)
+reifyBind ty = (`go` ty) =<< getWiredIns
+  where
+    go wis (TyConApp tc [_s, b, a])
+      | tc == tc_Bind wis = (, a) <$> reifySymbol b
+    go _ _ = ((, ty) . tempSymbol "db") <$> mkFreshInt
 
 
 reifyString :: Type -> SpecM String
@@ -236,10 +236,14 @@ reifyNat (LitTy (NumTyLit n)) = return n
 reifyNat ty                   = malformed "natural number" ty
 
 --------------------------------------------------------------------------------
--- Utility Functions -----------------------------------------------------------
+-- Error Messages --------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 malformed :: String -> Type -> m a
 malformed desc ty = panic $
   "Malformed LiquidHaskell " ++ desc ++ " encoding: " ++ showPpr ty
+
+invalidBind :: Located Symbol -> m a
+invalidBind lb = panic $
+  "Bind cannot appear at this location: " ++ show lb
 
