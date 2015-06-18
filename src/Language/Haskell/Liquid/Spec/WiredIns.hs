@@ -36,7 +36,7 @@ data WiredIns =
     { tc_Bind     :: TyCon
     , tc_Refine   :: TyCon
 
-    , pc_L        :: TyCon
+    , pc_Span     :: TyCon
 
     , pc_PTrue    :: TyCon
     , pc_PFalse   :: TyCon
@@ -88,7 +88,7 @@ loadWiredIns' = WiredIns
   <$> lookupTHTyCon ''Bind
   <*> lookupTHTyCon ''Refine
 
-  <*> lookupPromoteTHDataCon 'L
+  <*> lookupPromoteTHDataCon 'Span
 
   <*> lookupPromoteTHDataCon 'PTrue
   <*> lookupPromoteTHDataCon 'PFalse
