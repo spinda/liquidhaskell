@@ -95,6 +95,7 @@ benchTests
     , testGroup "icfp_neg"    <$> dirTests "benchmarks/icfp15/neg"                ["RIO.hs", "DataBase.hs"]           (ExitFailure 1)
     , testGroup "gsoc_pos"    <$> dirTests "benchmarks/gsoc15/pos"                []           ExitSuccess
     , testGroup "gsoc_neg"    <$> dirTests "benchmarks/gsoc15/neg"                []           (ExitFailure 1)
+    , testGroup "gsoc_crash"  <$> dirTests "benchmarks/gsoc15/crash"              []           (ExitFailure 2)
     ]
 
 ---------------------------------------------------------------------------
