@@ -1,9 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Language.Haskell.Liquid.Spec.Extract (
     extractTySigs
---  , extractTySyns
+  , extractTySyns
   ) where
 
 import GHC
@@ -15,9 +16,15 @@ import HscTypes
 import MonadUtils
 import SrcLoc
 import TcRnTypes
+import TyCon
 import Var
 
+import Data.Maybe
+
+import Language.Fixpoint.Types
+
 import Language.Haskell.Liquid.GhcMisc
+import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Types
 
 import Language.Haskell.Liquid.Spec.Env
@@ -66,4 +73,25 @@ idsFromLocalBinds _                  = []
 idsFromValBinds :: HsValBinds Id -> [Id]
 idsFromValBinds (ValBindsIn  binds _) = idsFromBinds binds
 idsFromValBinds (ValBindsOut binds _) = concatMap (idsFromBinds . snd) binds
+
+--------------------------------------------------------------------------------
+
+extractTySyns :: TypecheckedModule -> SpecM [RTAlias RTyVar SpecType]
+extractTySyns mod =
+  mapM go tysyns
+  where
+    things = modInfoTyThings $ tm_checked_module_info mod
+    tycons = mapMaybe (\case { ATyCon tc -> Just tc; _ -> Nothing }) things
+    tysyns = mapMaybe (\tc -> (tc, ) <$> synTyConDefn_maybe tc) tycons
+    go (tc, (tvs, rhs)) = do
+      rhs' <- reifyRTy rhs
+      return $
+        RTA { rtName  = symbol tc
+            , rtTArgs = map rTyVar tvs
+            , rtVArgs = []
+            , rtBody  = rhs'
+            -- TODO: Extract type synonym position data
+            , rtPos   = dummyPos "TypeAlias"
+            , rtPosE  = dummyPos "TypeAlias"
+            }
 
