@@ -8,6 +8,7 @@ module Language.Haskell.Liquid.Spec (
 import GHC
 
 import GhcMonad
+import HscTypes
 import NameSet
 import TysWiredIn
 
@@ -26,13 +27,13 @@ import Language.Haskell.Liquid.Spec.Env
 import Language.Haskell.Liquid.Spec.Extract
 
 
-makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> Ghc GhcSpec
-makeGhcSpec cfg exports mod = runSpecM $ makeGhcSpec' cfg exports mod
+makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> ModGuts -> Ghc GhcSpec
+makeGhcSpec cfg exports mod guts = runSpecM $ makeGhcSpec' cfg exports mod guts
 
-makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> SpecM GhcSpec
-makeGhcSpec' cfg exports mod = do
+makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> ModGuts -> SpecM GhcSpec
+makeGhcSpec' cfg exports mod guts = do
   topSigs <- extractTySigs mod
-  tySyns  <- extractTySyns mod
+  tySyns  <- extractTySyns mod guts
   liftIO $ mapM_ printTySyn tySyns
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) topSigs
                            , exports  = exports
