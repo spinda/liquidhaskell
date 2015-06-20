@@ -35,6 +35,7 @@ data WiredIns =
   WiredIns
     { tc_Bind     :: TyCon
     , tc_Refine   :: TyCon
+    , tc_Expr     :: TyCon
 
     , pc_Span     :: TyCon
 
@@ -87,6 +88,7 @@ loadWiredIns' :: GhcMonad m => m WiredIns
 loadWiredIns' = WiredIns
   <$> lookupTHTyCon ''Bind
   <*> lookupTHTyCon ''Refine
+  <*> lookupTHTyCon ''Expr
 
   <*> lookupPromoteTHDataCon 'Span
 

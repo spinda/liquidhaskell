@@ -8,6 +8,9 @@ module Language.Haskell.Liquid.Spec.Reify (
   , reifyRefa
   , reifyPred
   , reifyExpr
+
+    -- TODO: Eliminate this export
+  , isExprParam
   ) where
 
 import GHC hiding (Located)
@@ -132,6 +135,11 @@ reifyPred ty = (`go` ty) =<< getWiredIns
 reifyExpr :: Type -> SpecM Expr
 reifyExpr ty = (`go` ty) =<< getWiredIns
   where
+    -- Special case for type synonym extraction: expression params aren't
+    -- substituted yet
+    go wis (TyVarTy tv)
+      | isExprParam wis tv, ('ℯ':var) <- getOccString tv =
+        return $ EVar $ symbol var
     go wis (TyConApp tc as)
       | tc == pc_ECon wis, [c] <- as =
         ECon <$> reifyConstant c
@@ -148,6 +156,12 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
       | tc == pc_EBot wis, [] <- as =
         return EBot
     go _ _ = malformed "expression" ty
+
+isExprParam :: WiredIns -> TyVar -> Bool
+isExprParam wis tv = tyVarKind tv == exprKind
+  where
+    exprKind = TyConApp (tc_Expr wis) []
+
 
 
 reifyConstant :: Type -> SpecM Constant
