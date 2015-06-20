@@ -9,19 +9,19 @@ module Language.Haskell.Liquid.Spec.Extract (
 
 import GHC
 
-import Annotations
 import Bag
 import HsBinds
 import HsExpr
 import HscTypes
 import MonadUtils
 import NameEnv
-import Serialized
 import SrcLoc
 import TcRnTypes
 import TyCon
+import TypeRep
 import Var
 
+import Data.List
 import Data.Maybe
 
 import Language.Fixpoint.Types
@@ -33,6 +33,7 @@ import Language.Haskell.Liquid.Types
 
 import Language.Haskell.Liquid.Spec.Env
 import Language.Haskell.Liquid.Spec.Reify
+import Language.Haskell.Liquid.Spec.WiredIns
 
 --------------------------------------------------------------------------------
 
@@ -80,28 +81,25 @@ idsFromValBinds (ValBindsOut binds _) = concatMap (idsFromBinds . snd) binds
 
 --------------------------------------------------------------------------------
 
-extractTySyns :: TypecheckedModule -> ModGuts -> SpecM [RTAlias RTyVar SpecType]
-extractTySyns mod guts =
+-- TODO: Move type variable code to Reify
+extractTySyns :: TypecheckedModule -> SpecM [RTAlias RTyVar SpecType]
+extractTySyns mod =
   mapM go tysyns
   where
-    annenv = mkAnnEnv $ mg_anns guts
     things = modInfoTyThings $ tm_checked_module_info mod
     tycons = mapMaybe (\case { ATyCon tc -> Just tc; _ -> Nothing }) things
     tysyns = mapMaybe (\tc -> (tc, ) <$> synTyConDefn_maybe tc) tycons
     go (tc, (tvs, rhs)) = do
       rhs' <- reifyRTy rhs
+      wis  <- getWiredIns
+      let (targs, vargs) = partition (not . isExprParam wis) tvs
       return $
         RTA { rtName  = symbol tc
-            , rtTArgs = map rTyVar tvs
-            , rtVArgs = map symbolRTyVar $ lookupVArgs annenv tc
+            , rtTArgs = map rTyVar targs
+            , rtVArgs = map rTyVar vargs
             , rtBody  = rhs'
             -- TODO: Extract type synonym position data
             , rtPos   = dummyPos "TypeAlias"
             , rtPosE  = dummyPos "TypeAlias"
             }
-
-lookupVArgs :: AnnEnv -> TyCon -> [Symbol]
-lookupVArgs env = concatMap go . findAnns deserializeWithData env . NamedTarget . getName
-  where
-    go (ExprParams vargs) = map symbol vargs
 
