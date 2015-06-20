@@ -77,23 +77,23 @@ instance IsOption LiquidOpts where
 
 unitTests
   = group "Unit" [
-      testGroup "pos"         <$> dirTests "tests/pos"                            []           ExitSuccess
-    , testGroup "neg"         <$> dirTests "tests/neg"                            []           (ExitFailure 1)
-    , testGroup "crash"       <$> dirTests "tests/crash"                          []           (ExitFailure 2)
-    , testGroup "parser/pos"  <$> dirTests "tests/parser/pos"                     []           ExitSuccess
-    , testGroup "error/crash" <$> dirTests "tests/error_messages/crash"           []           (ExitFailure 2)
+--    testGroup "pos"         <$> dirTests "tests/pos"                            []           ExitSuccess
+--  , testGroup "neg"         <$> dirTests "tests/neg"                            []           (ExitFailure 1)
+--  , testGroup "crash"       <$> dirTests "tests/crash"                          []           (ExitFailure 2)
+--  , testGroup "parser/pos"  <$> dirTests "tests/parser/pos"                     []           ExitSuccess
+--  , testGroup "error/crash" <$> dirTests "tests/error_messages/crash"           []           (ExitFailure 2)
    ]
 
 benchTests
   = group "Benchmarks" [
-      testGroup "text"        <$> dirTests "benchmarks/text-0.11.2.3"             textIgnored  ExitSuccess
-    , testGroup "bytestring"  <$> dirTests "benchmarks/bytestring-0.9.2.1"        []           ExitSuccess
-    , testGroup "esop"        <$> dirTests "benchmarks/esop2013-submission"       ["Base0.hs"] ExitSuccess
-    , testGroup "vect-algs"   <$> dirTests "benchmarks/vector-algorithms-0.5.4.2" []           ExitSuccess
-    , testGroup "hscolour"    <$> dirTests "benchmarks/hscolour-1.20.0.0"         []           ExitSuccess
-    , testGroup "icfp_pos"    <$> dirTests "benchmarks/icfp15/pos"                []           ExitSuccess
-    , testGroup "icfp_neg"    <$> dirTests "benchmarks/icfp15/neg"                ["RIO.hs", "DataBase.hs"]           (ExitFailure 1)
-    , testGroup "gsoc_pos"    <$> dirTests "benchmarks/gsoc15/pos"                []           ExitSuccess
+--    testGroup "text"        <$> dirTests "benchmarks/text-0.11.2.3"             textIgnored  ExitSuccess
+--  , testGroup "bytestring"  <$> dirTests "benchmarks/bytestring-0.9.2.1"        []           ExitSuccess
+--  , testGroup "esop"        <$> dirTests "benchmarks/esop2013-submission"       ["Base0.hs"] ExitSuccess
+--  , testGroup "vect-algs"   <$> dirTests "benchmarks/vector-algorithms-0.5.4.2" []           ExitSuccess
+--  , testGroup "hscolour"    <$> dirTests "benchmarks/hscolour-1.20.0.0"         []           ExitSuccess
+--  , testGroup "icfp_pos"    <$> dirTests "benchmarks/icfp15/pos"                []           ExitSuccess
+--  , testGroup "icfp_neg"    <$> dirTests "benchmarks/icfp15/neg"                ["RIO.hs", "DataBase.hs"]           (ExitFailure 1)
+      testGroup "gsoc_pos"    <$> dirTests "benchmarks/gsoc15/pos"                []           ExitSuccess
     , testGroup "gsoc_neg"    <$> dirTests "benchmarks/gsoc15/neg"                []           (ExitFailure 1)
     , testGroup "gsoc_crash"  <$> dirTests "benchmarks/gsoc15/crash"              []           (ExitFailure 2)
     ]
