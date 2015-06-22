@@ -25,12 +25,13 @@ import Language.Haskell.Liquid.Types
 
 import Language.Haskell.Liquid.Spec.Env
 import Language.Haskell.Liquid.Spec.Extract
+import Language.Haskell.Liquid.Spec.Reify
 
 
-makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> Ghc GhcSpec
-makeGhcSpec cfg exports mod = runSpecM $ makeGhcSpec' cfg exports mod
+makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> ModGuts -> Ghc GhcSpec
+makeGhcSpec cfg exports mod guts = runSpecM $ runReifyM (makeGhcSpec' cfg exports mod) guts
 
-makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> SpecM GhcSpec
+makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> ReifyM GhcSpec
 makeGhcSpec' cfg exports mod = do
   topSigs <- extractTySigs mod
   tySyns  <- extractTySyns mod

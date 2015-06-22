@@ -96,7 +96,7 @@ getGhcInfo' cfg0 target
       coreBinds          <- liftIO $ anormalize (not $ nocaseexpand cfg) hscEnv modguts
 
       setContext [IIModule $ moduleName $ ms_mod summary]
-      spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked
+      spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked $ dm_core_module desugared
 
       let paths           = idirs cfg
       liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
