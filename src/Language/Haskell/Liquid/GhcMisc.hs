@@ -262,7 +262,8 @@ showPpr       = showSDoc . ppr
 -- FIXME: somewhere we depend on this printing out all GHC entities with
 -- fully-qualified names...
 showSDoc sdoc = Out.renderWithStyle unsafeGlobalDynFlags sdoc (Out.mkUserStyle Out.alwaysQualify Out.AllTheWay)
-showSDocDump  = Out.showSDocDump unsafeGlobalDynFlags
+showSDocDump  = Out.showSDocDump  unsafeGlobalDynFlags
+showSDocDebug = Out.showSDocDebug unsafeGlobalDynFlags
 
 typeUniqueString = {- ("sort_" ++) . -} showSDocDump . ppr
 
