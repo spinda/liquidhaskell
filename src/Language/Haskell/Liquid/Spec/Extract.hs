@@ -37,7 +37,7 @@ import Language.Haskell.Liquid.Spec.WiredIns
 
 --------------------------------------------------------------------------------
 
-extractTySigs :: TypecheckedModule -> SpecM [(Var, SpecType)]
+extractTySigs :: TypecheckedModule -> ReifyM [(Var, SpecType)]
 extractTySigs mod = do
   liftIO $ putStrLn $ showPpr $ tm_typechecked_source mod
   liftIO $ putStrLn $ showPpr ids
@@ -81,8 +81,7 @@ idsFromValBinds (ValBindsOut binds _) = concatMap (idsFromBinds . snd) binds
 
 --------------------------------------------------------------------------------
 
--- TODO: Move type variable code to Reify
-extractTySyns :: TypecheckedModule -> SpecM [RTAlias RTyVar SpecType]
+extractTySyns :: TypecheckedModule -> ReifyM [RTAlias RTyVar SpecType]
 extractTySyns mod =
   mapM go tysyns
   where
@@ -91,12 +90,11 @@ extractTySyns mod =
     tysyns = mapMaybe (\tc -> (tc, ) <$> synTyConDefn_maybe tc) tycons
     go (tc, (tvs, rhs)) = do
       rhs' <- reifyRTy rhs
-      wis  <- getWiredIns
-      let (targs, vargs) = partition (not . isExprParam wis) tvs
+      evs  <- lookupExprParams tc
       return $
         RTA { rtName  = symbol tc
-            , rtTArgs = map rTyVar targs
-            , rtVArgs = map rTyVar vargs
+            , rtTArgs = map rTyVar tvs
+            , rtVArgs = map symbolRTyVar evs
             , rtBody  = rhs'
             -- TODO: Extract type synonym position data
             , rtPos   = dummyPos "TypeAlias"

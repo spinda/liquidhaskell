@@ -33,47 +33,50 @@ import Language.Haskell.Liquid.RType
 
 data WiredIns =
   WiredIns
-    { tc_Bind     :: TyCon
-    , tc_Refine   :: TyCon
-    , tc_Expr     :: TyCon
+    { tc_Bind      :: TyCon
+    , tc_Refine    :: TyCon
+    , tc_ExprArgs  :: TyCon
 
-    , pc_Span     :: TyCon
+    , pc_Span      :: TyCon
 
-    , pc_PTrue    :: TyCon
-    , pc_PFalse   :: TyCon
-    , pc_PAnd     :: TyCon
-    , pc_POr      :: TyCon
-    , pc_PNot     :: TyCon
-    , pc_PImp     :: TyCon
-    , pc_PIff     :: TyCon
-    , pc_PExp     :: TyCon
-    , pc_PAtom    :: TyCon
-    , pc_PTop     :: TyCon
+    , tc_Expr      :: TyCon
 
-    , pc_ECon     :: TyCon
-    , pc_EBdr     :: TyCon
-    , pc_ECtr     :: TyCon
-    , pc_ENeg     :: TyCon
-    , pc_EBin     :: TyCon
-    , pc_EIte     :: TyCon
-    , pc_EBot     :: TyCon
+    , pc_PTrue     :: TyCon
+    , pc_PFalse    :: TyCon
+    , pc_PAnd      :: TyCon
+    , pc_POr       :: TyCon
+    , pc_PNot      :: TyCon
+    , pc_PImp      :: TyCon
+    , pc_PIff      :: TyCon
+    , pc_PExp      :: TyCon
+    , pc_PAtom     :: TyCon
+    , pc_PTop      :: TyCon
 
-    , pc_I        :: TyCon
+    , pc_ECon      :: TyCon
+    , pc_EBdr      :: TyCon
+    , pc_EArg      :: TyCon
+    , pc_ECtr      :: TyCon
+    , pc_ENeg      :: TyCon
+    , pc_EBin      :: TyCon
+    , pc_EIte      :: TyCon
+    , pc_EBot      :: TyCon
 
-    , pc_Eq       :: TyCon
-    , pc_Ne       :: TyCon
-    , pc_Gt       :: TyCon
-    , pc_Ge       :: TyCon
-    , pc_Lt       :: TyCon
-    , pc_Le       :: TyCon
-    , pc_Ueq      :: TyCon
-    , pc_Une      :: TyCon
+    , pc_I         :: TyCon
 
-    , pc_Plus     :: TyCon
-    , pc_Minus    :: TyCon
-    , pc_Times    :: TyCon
-    , pc_Div      :: TyCon
-    , pc_Mod      :: TyCon
+    , pc_Eq        :: TyCon
+    , pc_Ne        :: TyCon
+    , pc_Gt        :: TyCon
+    , pc_Ge        :: TyCon
+    , pc_Lt        :: TyCon
+    , pc_Le        :: TyCon
+    , pc_Ueq       :: TyCon
+    , pc_Une       :: TyCon
+
+    , pc_Plus      :: TyCon
+    , pc_Minus     :: TyCon
+    , pc_Times     :: TyCon
+    , pc_Div       :: TyCon
+    , pc_Mod       :: TyCon
     } 
 
 loadWiredIns :: GhcMonad m => m WiredIns
@@ -88,9 +91,11 @@ loadWiredIns' :: GhcMonad m => m WiredIns
 loadWiredIns' = WiredIns
   <$> lookupTHTyCon ''Bind
   <*> lookupTHTyCon ''Refine
-  <*> lookupTHTyCon ''Expr
+  <*> lookupTHTyCon ''ExprArgs
 
   <*> lookupPromoteTHDataCon 'Span
+
+  <*> lookupTHTyCon ''Expr
 
   <*> lookupPromoteTHDataCon 'PTrue
   <*> lookupPromoteTHDataCon 'PFalse
@@ -105,6 +110,7 @@ loadWiredIns' = WiredIns
 
   <*> lookupPromoteTHDataCon 'ECon
   <*> lookupPromoteTHDataCon 'EBdr
+  <*> lookupPromoteTHDataCon 'EArg
   <*> lookupPromoteTHDataCon 'ECtr
   <*> lookupPromoteTHDataCon 'ENeg
   <*> lookupPromoteTHDataCon 'EBin
