@@ -10,16 +10,19 @@ module Language.Haskell.Liquid.Spec.Env (
   , mkFreshInt
   , getAllAnnInfo
   , lookupAnnInfo
+  , lookupCoreBind
   ) where
 
 import GHC
 
 import Annotations
+import CoreSyn
 import DynFlags
 import Exception
 import HscTypes
 import Name
 import Serialized
+import Var
 
 import Control.Applicative
 import Control.Monad.State
@@ -34,6 +37,7 @@ import Language.Fixpoint.Types
 
 import qualified Language.Haskell.Liquid.RType as RT
 
+import Language.Haskell.Liquid.ANFTransform
 import Language.Haskell.Liquid.GhcMisc
 
 import Language.Haskell.Liquid.Spec.WiredIns
@@ -47,6 +51,7 @@ newtype SpecM a = SpecM { unSpecM :: StateT SpecState Ghc a }
 
 data SpecState = SS { ss_wiredIns :: WiredIns
                     , ss_annotEnv :: M.HashMap Name AnnInfo
+                    , ss_coreEnv  :: M.HashMap Var CoreExpr
                     , ss_freshInt :: Integer
                     }
 
@@ -92,11 +97,12 @@ instance Monoid AnnInfo where
 
 --------------------------------------------------------------------------------
 
-runSpecM :: SpecM a -> ModGuts -> Ghc a
-runSpecM act guts = do
+runSpecM :: SpecM a -> ModGuts -> [CoreBind] -> Ghc a
+runSpecM act guts cbs = do
   wis <- loadWiredIns
   ann <- buildAnnotEnv guts
-  runSpecM' act $ SS wis ann 0
+  let core = buildCoreEnv cbs
+  runSpecM' act $ SS wis ann core 0
   
 runSpecM' :: SpecM a -> SpecState -> Ghc a
 runSpecM' = evalStateT . unSpecM
@@ -123,6 +129,13 @@ convertFTycon RT.FTcReal     = realFTyCon
 convertFTycon RT.FTcBool     = boolFTyCon
 convertFTycon (RT.FTcUser s) = symbolFTycon (dummyLoc $ symbol s) -- TODO: Preserve location info
 
+
+buildCoreEnv :: [CoreBind] -> M.HashMap Var CoreExpr
+buildCoreEnv = M.fromList . concatMap go
+  where
+    go (NonRec v def) = [(v, def)]
+    go (Rec xes)      = xes
+
 --------------------------------------------------------------------------------
 
 getWiredIns :: SpecM WiredIns
@@ -141,4 +154,7 @@ lookupAnnInfo :: NamedThing a => a -> SpecM AnnInfo
 lookupAnnInfo thing = SpecM $ do
   ann <- gets ss_annotEnv
   return $ M.lookupDefault mempty (getName thing) ann
+
+lookupCoreBind :: Var -> SpecM (Maybe CoreExpr)
+lookupCoreBind var = SpecM $ gets (M.lookup var . ss_coreEnv)
 

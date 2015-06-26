@@ -7,12 +7,15 @@ module Language.Haskell.Liquid.Spec (
 
 import GHC
 
+import CoreSyn
 import GhcMonad
 import HscTypes
 import NameSet
 import TysWiredIn
 
 import Control.Arrow
+
+import Data.Either
 
 import qualified Data.HashMap.Strict as M
 
@@ -28,8 +31,8 @@ import Language.Haskell.Liquid.Spec.Extract
 import Language.Haskell.Liquid.Spec.Reify
 
 
-makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> ModGuts -> Ghc GhcSpec
-makeGhcSpec cfg exports mod guts = runSpecM (makeGhcSpec' cfg exports mod) guts
+makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> ModGuts -> [CoreBind] -> Ghc GhcSpec
+makeGhcSpec cfg exports mod guts cbs = runSpecM (makeGhcSpec' cfg exports mod) guts cbs
 
 makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> SpecM GhcSpec
 makeGhcSpec' cfg exports mod = do
@@ -50,7 +53,10 @@ makeGhcSpec' cfg exports mod = do
          putStrLn $ "targs: " ++ showpp targs
          putStrLn $ "vargs: " ++ showpp vargs
          putStrLn $ "body: " ++ showpp body
-    printInline id = whenLoud $ putStrLn $ "=== inline: " ++ showpp id
+    printInline (id, TI params def) = whenLoud $ do
+      putStrLn $ "=== inline: " ++ showpp id
+      putStrLn $ "params: " ++ showpp params
+      putStrLn $ "def: " ++ either showpp showpp def
 
 
 emptySpec :: Config -> GhcSpec
