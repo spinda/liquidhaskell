@@ -54,7 +54,7 @@ data WiredIns =
 
     , pc_ECon      :: TyCon
     , pc_EBdr      :: TyCon
-    , pc_EArg      :: TyCon
+    , pc_EParam    :: TyCon
     , pc_ECtr      :: TyCon
     , pc_ENeg      :: TyCon
     , pc_EBin      :: TyCon
@@ -110,7 +110,7 @@ loadWiredIns' = WiredIns
 
   <*> lookupPromoteTHDataCon 'ECon
   <*> lookupPromoteTHDataCon 'EBdr
-  <*> lookupPromoteTHDataCon 'EArg
+  <*> lookupPromoteTHDataCon 'EParam
   <*> lookupPromoteTHDataCon 'ECtr
   <*> lookupPromoteTHDataCon 'ENeg
   <*> lookupPromoteTHDataCon 'EBin

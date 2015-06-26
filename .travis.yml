@@ -39,6 +39,7 @@ env:
  # - GHC="7.10.1" CABAL="1.22" SMT=z3   TESTS=Benchmarks/icfp_neg
  - GHC="7.10.1" CABAL="1.22" SMT=z3   TESTS=Benchmarks/gsoc_pos
  - GHC="7.10.1" CABAL="1.22" SMT=z3   TESTS=Benchmarks/gsoc_neg
+ - GHC="7.10.1" CABAL="1.22" SMT=z3   TESTS=Benchmarks/gsoc_crash
 
  # ugh... Classify.hs is too slow and makes travis think the build is stalled
  # - TESTS=hscolour
