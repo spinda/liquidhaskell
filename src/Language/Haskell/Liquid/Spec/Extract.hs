@@ -6,6 +6,7 @@ module Language.Haskell.Liquid.Spec.Extract (
     extractTySigs
   , extractTySyns
   , extractTcEmbeds
+  , extractInlines
   ) where
 
 import GHC
@@ -118,4 +119,17 @@ extractTcEmbeds = M.fromList <$> (mapMaybeM (go . second ai_ftcEmbed) =<< getAll
       return $ case thing of
         Just (ATyCon tc) -> Just (tc, ftc)
         _                -> Nothing
+
+--------------------------------------------------------------------------------
+
+extractInlines :: SpecM [Id]
+extractInlines = mapMaybeM (go . second ai_isInline) =<< getAllAnnInfo
+  where
+    go (_, False) =
+      return Nothing
+    go (name, True) = do
+      thing <- lookupName name
+      return $ case thing of
+        Just (AnId id) -> Just id
+        _              -> Nothing
 
