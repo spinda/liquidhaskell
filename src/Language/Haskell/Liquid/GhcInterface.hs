@@ -34,10 +34,12 @@ import System.FilePath ( replaceExtension, normalise)
 import DynFlags
 import Control.Monad (filterM, foldM, when, forM, forM_, liftM)
 import Control.Applicative  hiding (empty)
+import Data.Bifunctor
 import Data.Monoid hiding ((<>))
 import Data.List (find, nub)
 import Data.Maybe (catMaybes, maybeToList)
 import qualified Data.HashSet        as S
+import qualified Data.HashMap.Strict as M
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 import System.Directory (removeFile, createDirectory, doesFileExist)
@@ -292,6 +294,8 @@ instance PPrint GhcSpec where
               $$ (pprint $ tgtVars spec)
               $$ (text "******* Type Signatures *********************")
               $$ (pprintLongList $ tySigs spec)
+              $$ (text "******* FTycon Embeds ***********************")
+              $$ (pprintLongList $ map (second fTyconSymbol) $ M.toList $ tcEmbeds spec)
               $$ (text "******* Assumed Type Signatures *************")
               $$ (pprintLongList $ asmSigs spec)
               $$ (text "******* DataCon Specifications (Measure) ****")

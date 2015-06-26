@@ -2,18 +2,38 @@
 
 module Language.Haskell.Liquid.Spec.Env (
     SpecM
+  , AnnInfo(..)
+
   , runSpecM
 
   , getWiredIns
   , mkFreshInt
+  , getAllAnnInfo
+  , lookupAnnInfo
   ) where
 
 import GHC
 
+import Annotations
 import DynFlags
 import Exception
+import HscTypes
+import Name
+import Serialized
 
+import Control.Applicative
 import Control.Monad.State
+
+import Data.Maybe
+import Data.Monoid
+
+import qualified Data.HashMap.Strict as M
+
+import Language.Fixpoint.Types
+
+import qualified Language.Haskell.Liquid.RType as RT
+
+import Language.Haskell.Liquid.GhcMisc
 
 import Language.Haskell.Liquid.Spec.WiredIns
 
@@ -25,8 +45,14 @@ newtype SpecM a = SpecM { unSpecM :: StateT SpecState Ghc a }
                            )
 
 data SpecState = SS { ss_wiredIns :: WiredIns
+                    , ss_annotEnv :: M.HashMap Name AnnInfo
                     , ss_freshInt :: Integer
                     }
+
+data AnnInfo = AI { ai_exprParams :: [Symbol]
+                  , ai_ftcEmbed   :: Maybe FTycon
+                  }
+
 
 instance GhcMonad SpecM where
   getSession = SpecM $ lift getSession
@@ -49,16 +75,45 @@ instance ExceptionMonad SpecM where
 instance HasDynFlags SpecM where
   getDynFlags = SpecM $ lift getDynFlags
 
+
+instance Monoid AnnInfo where
+  mempty =
+    AI [] Nothing
+  mappend x y =
+    AI (ai_exprParams x ++ ai_exprParams y) (ai_ftcEmbed x <|> ai_ftcEmbed y)
+  mconcat xs =
+    AI (concatMap ai_exprParams xs) (listToMaybe $ mapMaybe ai_ftcEmbed xs)
+
 --------------------------------------------------------------------------------
 
-runSpecM :: SpecM a -> Ghc a
-runSpecM act = do
+runSpecM :: SpecM a -> ModGuts -> Ghc a
+runSpecM act guts = do
   wis <- loadWiredIns
-  let initState = SS wis 0
-  runSpecM' act initState
+  ann <- buildAnnotEnv guts
+  runSpecM' act $ SS wis ann 0
   
 runSpecM' :: SpecM a -> SpecState -> Ghc a
 runSpecM' = evalStateT . unSpecM
+
+
+-- TODO: Error out on duplicate annotations
+-- TODO: Move this code elsewhere?
+buildAnnotEnv :: ModGuts -> Ghc (M.HashMap Name AnnInfo)
+buildAnnotEnv guts =
+  return $ M.fromListWith mappend $ mapMaybe go $ mg_anns guts
+  where
+    go (Annotation (NamedTarget name) payload)
+      | Just (RT.ExprParams params) <- fromSerialized deserializeWithData payload =
+        Just (name, mempty { ai_exprParams = map symbol params })
+      | Just (RT.EmbedAs ftc) <- fromSerialized deserializeWithData payload =
+        Just (name, mempty { ai_ftcEmbed = Just $ convertFTycon ftc })
+    go _ = Nothing
+
+convertFTycon :: RT.FTycon -> FTycon
+convertFTycon RT.FTcInt      = intFTyCon
+convertFTycon RT.FTcReal     = realFTyCon
+convertFTycon RT.FTcBool     = boolFTyCon
+convertFTycon (RT.FTcUser s) = symbolFTycon (dummyLoc $ symbol s) -- TODO: Preserve location info
 
 --------------------------------------------------------------------------------
 
@@ -70,4 +125,12 @@ mkFreshInt = SpecM $ do
   state@(SS { ss_freshInt = freshInt }) <- get
   put $ state { ss_freshInt = freshInt + 1 }
   return freshInt
+
+getAllAnnInfo :: SpecM [(Name, AnnInfo)]
+getAllAnnInfo = SpecM $ gets (M.toList . ss_annotEnv)
+
+lookupAnnInfo :: NamedThing a => a -> SpecM AnnInfo
+lookupAnnInfo thing = SpecM $ do
+  ann <- gets ss_annotEnv
+  return $ M.lookupDefault mempty (getName thing) ann
 
