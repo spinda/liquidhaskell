@@ -87,10 +87,9 @@ strengthenResult v
 
 simplesymbol = symbol . getName
 
-newtype LogicM a = LM {runM :: LState -> Either a Error}
+newtype LogicM a = LM {runM :: LState -> Either a String}
 
 data LState = LState { symbolMap :: LogicMap 
-                     , mkError   :: String -> Error
                      }
 
 
@@ -116,13 +115,13 @@ instance Applicative LogicM where
                   (Right _, Right x) -> Right x
 
 throw :: String -> LogicM a
-throw str = LM $ \s -> Right $ (mkError s) str
+throw str = LM $ const $ Right str
 
 getState :: LogicM LState
 getState = LM $ Left 
 
-runToLogic lmap ferror (LM m) 
-  = m $ LState {symbolMap = lmap, mkError = ferror}
+runToLogic lmap (LM m) 
+  = m $ LState {symbolMap = lmap}
 
 coreToDef :: Reftable r => LocSymbol -> Var -> C.CoreExpr ->  LogicM [Def (RRType r) DataCon]
 coreToDef x _ e = go [] $ inline_preds $ simplify e

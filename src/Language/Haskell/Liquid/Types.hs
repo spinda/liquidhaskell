@@ -144,6 +144,9 @@ module Language.Haskell.Liquid.Types (
   , RTEnv (..)
   , mapRT, mapRP, mapRE
 
+  -- * Inlines
+  , TInline(..)
+
   -- * Final Result
   , Result (..)
 
@@ -1650,6 +1653,13 @@ mapRE f e = e { exprAliases = f $ exprAliases e }
 cinfoError (Ci _ (Just e)) = e
 cinfoError (Ci l _)        = errOther $ text $ "Cinfo:" ++ showPpr l
 
+-------------------------------------------------------------------------------
+----------- Inlines -----------------------------------------------------------
+-------------------------------------------------------------------------------
+
+data TInline = TI { tiargs :: [Symbol]
+                  , tibody :: Either Pred Expr
+                  } deriving (Show)
 
 --------------------------------------------------------------------------------
 --- Measures
