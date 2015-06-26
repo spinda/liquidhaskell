@@ -37,7 +37,9 @@ makeGhcSpec' cfg exports mod = do
   topSigs  <- extractTySigs mod
   tySyns   <- extractTySyns mod
   tcEmbeds <- extractTcEmbeds
+  inlines  <- extractInlines
   liftIO $ mapM_ printTySyn tySyns
+  liftIO $ mapM_ printInline inlines
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) topSigs
                            , exports  = exports
                            , tcEmbeds = tcEmbeds
@@ -48,6 +50,7 @@ makeGhcSpec' cfg exports mod = do
          putStrLn $ "targs: " ++ showpp targs
          putStrLn $ "vargs: " ++ showpp vargs
          putStrLn $ "body: " ++ showpp body
+    printInline id = whenLoud $ putStrLn $ "=== inline: " ++ showpp id
 
 
 emptySpec :: Config -> GhcSpec
