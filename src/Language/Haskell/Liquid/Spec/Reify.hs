@@ -2,6 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
+-- TODO: There's likely a higher-level simplification that can be used to
+--       express these transforms
+
 module Language.Haskell.Liquid.Spec.Reify (
     ReifyM
   , runReifyM
@@ -18,6 +21,7 @@ module Language.Haskell.Liquid.Spec.Reify (
 import GHC hiding (Located)
 
 import Annotations
+import BasicTypes (TupleSort(..))
 import ConLike
 import DataCon
 import DynFlags
@@ -28,11 +32,12 @@ import IdInfo
 import Name
 import NameEnv
 import Panic
+import PrelNames
 import Serialized
 import TyCon
 import Type
 import TypeRep
-import PrelNames
+import TysWiredIn
 import Unique
 import Var
 
@@ -142,8 +147,8 @@ reifyRTy (TyConApp tc as) = go =<< getWiredIns'
         invalidBind =<< reifyLocated reifySymbol s b
       | tc == tc_Refine wis, [a, b, p] <- as =
         strengthen <$> reifyRTy a <*> reifyRReft b p
-      | tc == tc_ExprArgs wis, [a, s, es] <- as =
-        reifyExprArgs a s es
+      | tc == tc_ExprArgs wis, [a, es] <- as =
+        reifyExprArgs a es
       | Just (tenv, rhs, as') <- tcExpandTyCon_maybe tc as =
         reifyRTy $ mkAppTys (substTy (mkTopTvSubst tenv) rhs) as'
       | otherwise =
@@ -156,20 +161,23 @@ reifyRTy (FunTy i o) = do
 reifyRTy (ForAllTy tv ty) = do
   RAllT (rTyVar tv) <$> reifyRTy ty
 
-reifyRTy ty@(LitTy _)  =
+reifyRTy ty@(LitTy _) =
   malformed "type" ty
 
 
-reifyExprArgs :: Type -> Type -> Type -> ReifyM SpecType
-reifyExprArgs a@(TyConApp tc _) s es = do
-  a'       <- reifyRTy a
-  (st, ed) <- reifySpan s
-  es'      <- mapM reifyExpr =<< reifyTyList es
-  params   <- lookupExprParams tc
+reifyExprArgs :: Type -> Type -> ReifyM SpecType
+reifyExprArgs a@(TyConApp tc _) es = do
+  a'     <- reifyRTy a
+  es'    <- mapM (go <=< reifyTuple) =<< reifyList es
+  params <- lookupExprParams tc
   if length params /= length es'
-     then invalidExprArgs st ed tc (length params) (length es')
-     else return $ subst (mkSubst (zip params es')) a'
-reifyExprArgs a _ _ =
+     then invalidExprArgs tc params es'
+     else return $ subst (mkSubst (zip params $ map snd es')) a'
+  where
+    go (s, e) = (,) <$> reifySpan s <*> reifyExpr e
+-- TODO: Report proper message when trying to apply expr args to non-type
+--       constructor
+reifyExprArgs a _ =
   malformed "expression args instantiation" a
 
 --------------------------------------------------------------------------------
@@ -234,7 +242,7 @@ reifyExpr ty = (`go` ty) =<< getWiredIns'
         ECon <$> reifyConstant c
       | tc == pc_EBdr wis, [s] <- as =
         EVar <$> reifySymbol s
-      | tc == pc_EArg wis, [s] <- as =
+      | tc == pc_EParam wis, [s] <- as =
         EVar <$> reifySymbol s
       | tc == pc_ECtr wis, [_, s, t] <- as =
         (EVar . val) <$> reifyLocated reifyDataCon s t
@@ -297,14 +305,21 @@ reifyDataCon ty =
 -- Reify Components ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyTyList :: Type -> ReifyM [Type]
-reifyTyList (TyConApp tc as)
+reifyList :: Type -> ReifyM [Type]
+reifyList (TyConApp tc as)
   | tc `hasKey` consDataConKey, [_, x, xs] <- as =
-    (x:) <$> reifyTyList xs
+    (x:) <$> reifyList xs
   | tc `hasKey` nilDataConKey, [_] <- as =
     return []
-reifyTyList ty =
+reifyList ty =
   malformed "type-level list" ty
+
+reifyTuple :: Type -> ReifyM (Type, Type)
+reifyTuple (TyConApp tc as)
+  | tc == promotedTupleDataCon BoxedTuple 2, [_, _, x, y] <- as =
+    return (x, y)
+reifyTuple ty =
+  malformed "type-level tuple" ty
 
 
 reifyLocated :: (Type -> ReifyM a) -> Type -> Type -> ReifyM (Located a)
@@ -360,13 +375,18 @@ invalidBind :: GhcMonad m => Located Symbol -> m a
 invalidBind lb = panic $
   "Bind cannot appear at this location: " ++ show lb
 
-invalidExprArgs :: GhcMonad m => SourcePos -> SourcePos -> TyCon -> Int -> Int -> m a
-invalidExprArgs st ed tc expected actual = panic $
-  "Type constructor " ++ showPpr tc ++
+invalidExprArgs :: GhcMonad m => TyCon -> [Symbol] -> [((SourcePos, SourcePos), Expr)] -> m a
+invalidExprArgs tc params es = panic $
+  "Type synonym " ++ showPpr tc ++
   " expects " ++ show expected ++
   " expression arguments but has been given " ++ show actual ++
   ", at the instantiation from " ++ show st ++ " to " ++ show ed
-
+  where
+    expected = length params
+    actual   = length es
+    (st, ed)
+      | actual > expected = fst (es !! expected)
+      | otherwise         = fst (last es)
 
 dumpType :: Type -> String
 dumpType (TyVarTy tv) = "(TyVarTy " ++ showPpr tv ++ ")"
