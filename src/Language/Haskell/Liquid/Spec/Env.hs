@@ -24,6 +24,7 @@ import Serialized
 import Control.Applicative
 import Control.Monad.State
 
+import Data.List
 import Data.Maybe
 import Data.Monoid
 
@@ -51,6 +52,7 @@ data SpecState = SS { ss_wiredIns :: WiredIns
 
 data AnnInfo = AI { ai_exprParams :: [Symbol]
                   , ai_ftcEmbed   :: Maybe FTycon
+                  , ai_isInline   :: Bool
                   }
 
 
@@ -78,11 +80,15 @@ instance HasDynFlags SpecM where
 
 instance Monoid AnnInfo where
   mempty =
-    AI [] Nothing
+    AI [] Nothing False
   mappend x y =
-    AI (ai_exprParams x ++ ai_exprParams y) (ai_ftcEmbed x <|> ai_ftcEmbed y)
+    AI (ai_exprParams x ++ ai_exprParams y)
+       (ai_ftcEmbed x <|> ai_ftcEmbed y)
+       (ai_isInline x || ai_isInline y)
   mconcat xs =
-    AI (concatMap ai_exprParams xs) (listToMaybe $ mapMaybe ai_ftcEmbed xs)
+    AI (concatMap ai_exprParams xs)
+       (listToMaybe $ mapMaybe ai_ftcEmbed xs)
+       (or $ map ai_isInline xs)
 
 --------------------------------------------------------------------------------
 
@@ -107,6 +113,8 @@ buildAnnotEnv guts =
         Just (name, mempty { ai_exprParams = map symbol params })
       | Just (RT.EmbedAs ftc) <- fromSerialized deserializeWithData payload =
         Just (name, mempty { ai_ftcEmbed = Just $ convertFTycon ftc })
+      | Just RT.IsInline <- fromSerialized deserializeWithData payload =
+        Just (name, mempty { ai_isInline = True })
     go _ = Nothing
 
 convertFTycon :: RT.FTycon -> FTycon

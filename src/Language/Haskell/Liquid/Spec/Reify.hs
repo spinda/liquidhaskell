@@ -170,7 +170,7 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
     go wis (TyConApp tc as)
       | tc == pc_ECon wis, [c] <- as =
         ECon <$> reifyConstant c
-      | tc == pc_EBdr wis, [s] <- as =
+      | tc == pc_EVar wis, [s] <- as =
         EVar <$> reifySymbol s
       | tc == pc_EParam wis, [s] <- as =
         EVar <$> reifySymbol s
