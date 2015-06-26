@@ -29,16 +29,18 @@ import Language.Haskell.Liquid.Spec.Reify
 
 
 makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> ModGuts -> Ghc GhcSpec
-makeGhcSpec cfg exports mod guts = runSpecM $ runReifyM (makeGhcSpec' cfg exports mod) guts
+makeGhcSpec cfg exports mod guts = runSpecM (makeGhcSpec' cfg exports mod) guts
 
-makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> ReifyM GhcSpec
+makeGhcSpec' :: Config -> NameSet -> TypecheckedModule -> SpecM GhcSpec
 makeGhcSpec' cfg exports mod = do
-  topSigs <- extractTySigs mod
-  tySyns  <- extractTySyns mod
+  liftIO $ whenLoud $ putStrLn "extraction started..."
+  topSigs  <- extractTySigs mod
+  tySyns   <- extractTySyns mod
+  tcEmbeds <- extractTcEmbeds
   liftIO $ mapM_ printTySyn tySyns
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) topSigs
                            , exports  = exports
-                           , tcEmbeds = M.singleton intTyCon intFTyCon
+                           , tcEmbeds = tcEmbeds
                            }
   where
     printTySyn (RTA name targs vargs body _ _) = whenLoud $

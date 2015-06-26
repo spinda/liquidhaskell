@@ -372,6 +372,9 @@ kindArity _
   = 0
 
 
+instance Hashable Name where
+  hashWithSalt = uniqueHash
+
 instance Hashable Var where
   hashWithSalt = uniqueHash
 

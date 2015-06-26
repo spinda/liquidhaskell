@@ -5,6 +5,8 @@ module Test1 () where
 
 import LiquidHaskell
 
+[lq| embed Int as int |]
+
 [lq| type Nat = { v:Int | 0 <= v } |]
 
 type Plus x y = [lq| { v:Int | v = x + y } |]

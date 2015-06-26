@@ -5,6 +5,7 @@
 module Language.Haskell.Liquid.Spec.Extract (
     extractTySigs
   , extractTySyns
+  , extractTcEmbeds
   ) where
 
 import GHC
@@ -21,8 +22,12 @@ import TyCon
 import TypeRep
 import Var
 
+import Control.Arrow
+
 import Data.List
 import Data.Maybe
+
+import qualified Data.HashMap.Strict as M
 
 import Language.Fixpoint.Types
 
@@ -37,7 +42,7 @@ import Language.Haskell.Liquid.Spec.WiredIns
 
 --------------------------------------------------------------------------------
 
-extractTySigs :: TypecheckedModule -> ReifyM [(Var, SpecType)]
+extractTySigs :: TypecheckedModule -> SpecM [(Var, SpecType)]
 extractTySigs mod = do
   liftIO $ putStrLn $ showPpr $ tm_typechecked_source mod
   liftIO $ putStrLn $ showPpr ids
@@ -81,7 +86,7 @@ idsFromValBinds (ValBindsOut binds _) = concatMap (idsFromBinds . snd) binds
 
 --------------------------------------------------------------------------------
 
-extractTySyns :: TypecheckedModule -> ReifyM [RTAlias RTyVar SpecType]
+extractTySyns :: TypecheckedModule -> SpecM [RTAlias RTyVar SpecType]
 extractTySyns mod =
   mapM go tysyns
   where
@@ -90,7 +95,7 @@ extractTySyns mod =
     tysyns = mapMaybe (\tc -> (tc, ) <$> synTyConDefn_maybe tc) tycons
     go (tc, (tvs, rhs)) = do
       rhs' <- reifyRTy rhs
-      evs  <- lookupExprParams tc
+      evs  <- ai_exprParams <$> lookupAnnInfo tc
       return $
         RTA { rtName  = symbol tc
             , rtTArgs = map rTyVar tvs
@@ -100,4 +105,17 @@ extractTySyns mod =
             , rtPos   = dummyPos "TypeAlias"
             , rtPosE  = dummyPos "TypeAlias"
             }
+
+--------------------------------------------------------------------------------
+
+extractTcEmbeds :: SpecM (TCEmb TyCon)
+extractTcEmbeds = M.fromList <$> (mapMaybeM (go . second ai_ftcEmbed) =<< getAllAnnInfo)
+  where
+    go (_, Nothing) =
+      return Nothing
+    go (name, Just ftc) = do
+      thing <- lookupName name
+      return $ case thing of
+        Just (ATyCon tc) -> Just (tc, ftc)
+        _                -> Nothing
 
