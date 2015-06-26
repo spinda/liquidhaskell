@@ -16,7 +16,8 @@ import HsBinds
 import HsExpr
 import HscTypes
 import MonadUtils
-import NameEnv
+import Name
+import Panic
 import SrcLoc
 import TcRnTypes
 import TyCon
@@ -27,11 +28,13 @@ import Control.Arrow
 
 import Data.List
 import Data.Maybe
+import Data.Monoid
 
 import qualified Data.HashMap.Strict as M
 
 import Language.Fixpoint.Types
 
+import Language.Haskell.Liquid.CoreToLogic
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.RType
@@ -122,8 +125,21 @@ extractTcEmbeds = M.fromList <$> (mapMaybeM (go . second ai_ftcEmbed) =<< getAll
 
 --------------------------------------------------------------------------------
 
-extractInlines :: SpecM [Id]
-extractInlines = mapMaybeM (go . second ai_isInline) =<< getAllAnnInfo
+extractInlines :: SpecM [(LocSymbol, TInline)]
+extractInlines = do
+  vars <- extractInlineVars
+  M.fromList <$> mapM ofInline vars
+  where
+    ofInline var = do
+      def <- fromJust <$> lookupCoreBind var
+      let span = getSrcSpan var
+      let sym  = Loc (srcSpanSourcePos span) (srcSpanSourcePosE span) (symbol $ getName var)
+      case runToLogic mempty $ coreToFun sym var def of
+        Left (xs, e) -> return (sym, TI (symbol <$> xs) e)
+        Right err    -> panic err
+
+extractInlineVars :: SpecM [Var]
+extractInlineVars = mapMaybeM (go . second ai_isInline) =<< getAllAnnInfo
   where
     go (_, False) =
       return Nothing
