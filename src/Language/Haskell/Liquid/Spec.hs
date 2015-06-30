@@ -44,7 +44,6 @@ makeGhcSpec cfg exports mod vs anns cbs = do
   ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns exprParams inlines
   let freeSyms' = map (second (joinVar vs)) freeSyms
   liftIO $ mapM_ printTySyn tySyns
-  liftIO $ mapM_ printInline $ M.toList inlines
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) tySigs
                            , exports  = exports
                            , tcEmbeds = tcEmbeds
@@ -64,10 +63,6 @@ makeGhcSpec cfg exports mod vs anns cbs = do
          putStrLn $ "targs: " ++ showpp targs
          putStrLn $ "vargs: " ++ showpp vargs
          putStrLn $ "body: " ++ showpp body
-    printInline (id, TI params def) = whenLoud $ do
-      putStrLn $ "=== inline: " ++ showpp id
-      putStrLn $ "params: " ++ showpp params
-      putStrLn $ "def: " ++ either showpp showpp def
 
 emptySpec :: Config -> GhcSpec
 emptySpec cfg =
