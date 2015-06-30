@@ -227,6 +227,8 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
         EVar <$> reifySymbol s
       | tc == pc_ECtr wis, [_, dc] <- as =
         (EVar . val) <$> (traverse reifyDataCon =<< reifyLocated dc)
+      | tc == pc_EApp wis, [e, es] <- as =
+        reifyEApp e es
       | tc == pc_ENeg wis, [e] <- as =
         ENeg <$> reifyExpr e
       | tc == pc_EBin wis, [bop, e1, e2] <- as =
@@ -236,6 +238,15 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
       | tc == pc_EBot wis, [] <- as =
         return EBot
     go _ _ = malformed "expression" ty
+
+reifyEApp :: Type -> Type -> ReifyM Expr
+reifyEApp e es = do
+  e'  <- traverse reifyExpr =<< reifyLocated e
+  es' <- traverse reifyExpr =<< reifyList es
+  case val e' of
+    EVar v      -> return $ EApp (const v <$> e') es'
+    EApp v es'' -> return $ EApp v (es'' ++ es')
+    _           -> invalidEAppHead e'
 
 
 reifyConstant :: Type -> ReifyM Constant
@@ -350,6 +361,8 @@ reifyNat ty                   = malformed "natural number" ty
 -- Error Messages --------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+-- TODO: Review and revise error messages (across the board, not just here)
+
 malformed :: String -> Type -> ReifyM a
 malformed desc ty = liftGhc $ panic $
   "Malformed LiquidHaskell " ++ desc ++ " encoding: " ++ dumpType ty
@@ -370,6 +383,10 @@ invalidExprArgs tc params es = liftGhc $ panic $
     (st, ed)
       | actual > expected = (loc &&& locE) (es !! expected)
       | otherwise         = (loc &&& locE) (last es)
+
+invalidEAppHead :: Located Expr -> ReifyM a
+invalidEAppHead e = liftGhc $ panic $
+  "Expression does not take any parameters, and thus cannot begin an application: " ++ showpp e
 
 dumpType :: Type -> String
 dumpType (TyVarTy tv) = "(TyVarTy " ++ showPpr tv ++ ")"
