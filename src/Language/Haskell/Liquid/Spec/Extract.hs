@@ -29,6 +29,7 @@ import NameEnv
 import Panic
 import Serialized
 import Var
+import VarEnv
 
 import Control.Monad.Reader
 
@@ -59,7 +60,7 @@ newtype ExtractM a = ExtractM { unExtractM :: ReaderT ExtractEnv Ghc a }
                      deriving (Functor, Applicative, Monad)
 
 data ExtractEnv = ER { er_annotations :: [Annotation]
-                     , er_coreEnv     :: M.HashMap Var CoreExpr
+                     , er_coreEnv     :: VarEnv CoreExpr
                      }
 
 
@@ -68,8 +69,8 @@ runExtractM act anns cbs = runReaderT (unExtractM act) initEnv
   where
     initEnv = ER anns (buildCoreEnv cbs)
 
-buildCoreEnv :: [CoreBind] -> M.HashMap Var CoreExpr
-buildCoreEnv = M.fromList . concatMap go
+buildCoreEnv :: [CoreBind] -> VarEnv CoreExpr
+buildCoreEnv = mkVarEnv . concatMap go
   where
     go (NonRec v def) = [(v, def)]
     go (Rec xer)      = xer
@@ -87,7 +88,7 @@ annotationsOfType = ExtractM $ asks (mapMaybe go . er_annotations)
     go _ = Nothing
 
 lookupCoreBind :: Var -> ExtractM (Maybe CoreExpr)
-lookupCoreBind var = ExtractM $ asks (M.lookup var . er_coreEnv)
+lookupCoreBind var = ExtractM $ asks (flip lookupVarEnv var . er_coreEnv)
 
 --------------------------------------------------------------------------------
 -- Extraction Functions in ExtractM --------------------------------------------
@@ -108,15 +109,15 @@ extractTcEmbeds = M.fromList <$> (mapM go =<< annotationsOfType)
       Just (ATyCon tc) <- liftGhc $ lookupName name
       return (tc, convertFTycon $ convertLocated ftc)
 
-extractInlines :: ExtractM (M.HashMap LocSymbol TInline)
-extractInlines = M.fromList <$> (mapM go =<< annotationsOfType)
+extractInlines :: ExtractM (VarEnv TInline)
+extractInlines = mkVarEnv <$> (mapM go =<< annotationsOfType)
   where
     go (name, RT.IsInline span) = do
       Just (AnId var) <- liftGhc $ lookupName name
       def             <- fromJust <$> lookupCoreBind var
       let sym          = convertLocated' span $ symbol $ getName var
       case runToLogic mempty $ coreToFun sym var def of
-        Left (xs, e) -> return (sym, TI (symbol <$> xs) e)
+        Left (xs, e) -> return (var, TI (symbol <$> xs) e)
         Right err    -> liftGhc $ panic err
 
 
