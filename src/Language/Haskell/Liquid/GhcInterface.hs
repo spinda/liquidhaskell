@@ -97,21 +97,23 @@ getGhcInfo' cfg0 target
       hscEnv             <- getSession
       coreBinds          <- liftIO $ anormalize (not $ nocaseexpand cfg) hscEnv modguts
 
-      setContext [IIModule $ moduleName $ ms_mod summary]
-      spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (dm_core_module desugared) coreBinds
-
-      let paths           = idirs cfg
-      liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
-      hqualFiles         <- moduleHquals modguts paths target
-
       let datacons        = [ dataConWorkId dc
                             | tc <- mgi_tcs modguts
                             , dc <- tyConDataCons tc
                             ]
       let impVs           = importVars  coreBinds ++ classCons (mgi_cls_inst modguts)
+      let defVs           = definedVars coreBinds
       let useVs           = readVars    coreBinds
       let letVs           = letVars     coreBinds
       let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
+
+      setContext [IIModule $ moduleName $ ms_mod summary]
+      spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
+
+      let paths           = idirs cfg
+      liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
+      hqualFiles         <- moduleHquals modguts paths target
+
       return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
 
 
