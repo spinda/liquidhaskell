@@ -210,7 +210,6 @@ Library
                     Language.Haskell.Liquid.Names,
                     Paths_liquidhaskell,
 
-                    Language.Haskell.Liquid.Spec.Env,
                     Language.Haskell.Liquid.Spec.Extract,
                     Language.Haskell.Liquid.Spec.Reify,
                     Language.Haskell.Liquid.Spec.WiredIns
