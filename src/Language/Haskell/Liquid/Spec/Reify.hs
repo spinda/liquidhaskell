@@ -11,11 +11,6 @@ module Language.Haskell.Liquid.Spec.Reify (
   , lookupExprParams
 
   , reifyRTy
-  , reifyRReft
-  , reifyReft
-  , reifyRefa
-  , reifyPred
-  , reifyExpr
   ) where
 
 import GHC hiding (Located)
@@ -29,6 +24,7 @@ import Exception
 import FastString
 import HscTypes
 import IdInfo
+import MonadUtils
 import Name
 import NameEnv
 import Panic
@@ -40,6 +36,7 @@ import TypeRep
 import TysWiredIn
 import Unique
 import Var
+import VarEnv
 
 import qualified Outputable as Out
 
@@ -74,12 +71,12 @@ newtype ReifyM a = ReifyM { unReifyM :: StateT ReifyState Ghc a }
 data ReifyState = RS { rs_freshInt   :: Integer
                      , rs_wiredIns   :: WiredIns
                      , rs_exprParams :: NameEnv [Symbol]
-                     , rs_inlines    :: M.HashMap LocSymbol TInline
+                     , rs_inlines    :: VarEnv TInline
                      , rs_freeSyms   :: M.HashMap Symbol Var
                      }
 
 
-runReifyM :: ReifyM a -> WiredIns -> NameEnv [Symbol] -> M.HashMap LocSymbol TInline -> Ghc (a, [(Symbol, Var)])
+runReifyM :: ReifyM a -> WiredIns -> NameEnv [Symbol] -> VarEnv TInline -> Ghc (a, [(Symbol, Var)])
 runReifyM act wiredIns exprParams inlines = do
   (x, s) <- runStateT (unReifyM act) initState
   return (x, M.toList $ rs_freeSyms s)
@@ -104,8 +101,20 @@ lookupExprParams tc = ReifyM $ do
   env <- gets rs_exprParams
   return $ fromMaybe [] $ lookupNameEnv env $ getName tc
 
-_lookupInline :: Symbol -> ReifyM (Maybe TInline)
-_lookupInline s = ReifyM $ gets (M.lookup (dummyLoc s) . rs_inlines)
+lookupInline :: Located Symbol -> ReifyM (Maybe TInline)
+lookupInline s = do
+  names  <- liftGhc $ ghandle catchNotInScope $ parseName $ symbolString $ val s
+  things <- liftGhc $ mapMaybeM lookupName names
+  let var = listToMaybe $ mapMaybe findVar things
+  case var of
+    Nothing  -> return Nothing
+    Just key -> ReifyM $ gets (flip lookupVarEnv key . rs_inlines)
+  where
+    findVar (AnId var) = Just var
+    findVar _          = Nothing
+
+    catchNotInScope :: SourceError -> Ghc [Name]
+    catchNotInScope _ = return []
 
 visitFreeSym :: Symbol -> Var -> ReifyM ()
 visitFreeSym sym var = ReifyM $ modify $ \st ->
@@ -186,7 +195,10 @@ reifyRefa = fmap Refa . reifyPred
 --------------------------------------------------------------------------------
 
 reifyPred :: Type -> ReifyM Pred
-reifyPred ty = (`go` ty) =<< getWiredIns
+reifyPred = applyInlines <=< reifyPred'
+
+reifyPred' :: Type -> ReifyM Pred
+reifyPred' ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc as)
       | tc == pc_PTrue wis, [] <- as =
@@ -210,6 +222,45 @@ reifyPred ty = (`go` ty) =<< getWiredIns
       | tc == pc_PTop wis, [] <- as =
         return PTop
     go _ _ = malformed "predicate" ty
+
+
+applyInlines :: Pred -> ReifyM Pred
+applyInlines (PBexp e@(EApp f es)) = do
+  inline <- lookupInline f
+  case inline of
+    Just (TI args (Left body)) -> do
+      unless (length args == length es) (invalidInlineArgs f args es)
+      es' <- mapM applyInlines' es
+      return $ subst (mkSubst $ zip args es') body
+    _ ->
+      PBexp <$> applyInlines' e
+applyInlines (PBexp e    ) = PBexp <$> applyInlines' e
+applyInlines (PAnd ps    ) = PAnd <$> mapM applyInlines ps
+applyInlines (POr  ps    ) = POr <$> mapM applyInlines ps
+applyInlines (PNot p     ) = PNot <$> applyInlines p
+applyInlines (PImp x y   ) = PImp <$> applyInlines x <*> applyInlines y
+applyInlines (PIff x y   ) = PIff <$> applyInlines x <*> applyInlines y
+applyInlines (PAtom b x y) = PAtom b <$> applyInlines' x <*> applyInlines' y
+applyInlines (PAll xss p ) = PAll xss <$> applyInlines p
+applyInlines p             = return p
+
+applyInlines' :: Expr -> ReifyM Expr
+applyInlines' (EApp f es) = do
+  inline <- lookupInline f
+  es'    <- mapM applyInlines' es
+  case inline of
+    Nothing ->
+      return $ EApp f es'
+    Just (TI _ (Left _)) ->
+      liftGhc $ panic "TODO"
+    Just (TI args (Right body)) -> do
+      unless (length args == length es) (invalidInlineArgs f args es)
+      return $ subst (mkSubst $ zip args es') body
+applyInlines' (ENeg e    ) = ENeg <$> applyInlines' e
+applyInlines' (EBin b x y) = EBin b <$> applyInlines' x <*> applyInlines' y
+applyInlines' (EIte p x y) = EIte <$> applyInlines p <*> applyInlines' x <*> applyInlines' y
+applyInlines' (ECst e s  ) = (`ECst` s) <$> applyInlines' e
+applyInlines' e            = return e
 
 --------------------------------------------------------------------------------
 -- Reify Expr ------------------------------------------------------------------
@@ -387,6 +438,13 @@ invalidExprArgs tc params es = liftGhc $ panic $
 invalidEAppHead :: Located Expr -> ReifyM a
 invalidEAppHead e = liftGhc $ panic $
   "Expression does not take any parameters, and thus cannot begin an application: " ++ showpp e
+
+invalidInlineArgs :: LocSymbol -> [Symbol] -> [Expr] -> ReifyM a
+invalidInlineArgs f args es = liftGhc $ panic $
+  "Inline " ++ showpp f ++
+  " expects " ++ show (length args) ++
+  " arguments but has been given " ++ show (length es)
+
 
 dumpType :: Type -> String
 dumpType (TyVarTy tv) = "(TyVarTy " ++ showPpr tv ++ ")"
