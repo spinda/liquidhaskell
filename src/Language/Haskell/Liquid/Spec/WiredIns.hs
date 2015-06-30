@@ -37,7 +37,9 @@ data WiredIns =
     , tc_Refine    :: TyCon
     , tc_ExprArgs  :: TyCon
 
-    , pc_Span      :: TyCon
+    , pc_TyLocated :: TyCon
+    , pc_TySpan    :: TyCon
+    , pc_TyPos     :: TyCon
 
     , tc_Expr      :: TyCon
 
@@ -93,7 +95,9 @@ loadWiredIns' = WiredIns
   <*> lookupTHTyCon ''Refine
   <*> lookupTHTyCon ''ExprArgs
 
-  <*> lookupPromoteTHDataCon 'Span
+  <*> lookupPromoteTHDataCon 'TyLocated
+  <*> lookupPromoteTHDataCon 'TySpan
+  <*> lookupPromoteTHDataCon 'TyPos
 
   <*> lookupTHTyCon ''Expr
 

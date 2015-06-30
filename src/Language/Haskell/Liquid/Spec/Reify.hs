@@ -6,7 +6,11 @@
 --       express these transforms
 
 module Language.Haskell.Liquid.Spec.Reify (
-    reifyRTy
+    ReifyM
+  , runReifyM
+  , lookupExprParams
+
+  , reifyRTy
   , reifyRReft
   , reifyReft
   , reifyRefa
@@ -39,11 +43,14 @@ import Var
 
 import qualified Outputable as Out
 
-import Control.Monad.Reader
+import Control.Arrow
+import Control.Monad.State
 
 import Data.List
 import Data.Maybe
 import Data.Monoid
+
+import qualified Data.HashMap.Strict as M
 
 import Text.Parsec.Pos
 
@@ -55,14 +62,60 @@ import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.RType (ExprParams(..))
 import Language.Haskell.Liquid.Types
 
-import Language.Haskell.Liquid.Spec.Env
 import Language.Haskell.Liquid.Spec.WiredIns
+
+--------------------------------------------------------------------------------
+-- ReifyM Monad ----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+newtype ReifyM a = ReifyM { unReifyM :: StateT ReifyState Ghc a }
+                   deriving (Functor, Applicative, Monad, MonadIO)
+
+data ReifyState = RS { rs_freshInt   :: Integer
+                     , rs_wiredIns   :: WiredIns
+                     , rs_exprParams :: NameEnv [Symbol]
+                     , rs_inlines    :: M.HashMap LocSymbol TInline
+                     , rs_freeSyms   :: M.HashMap Symbol Var
+                     }
+
+
+runReifyM :: ReifyM a -> WiredIns -> NameEnv [Symbol] -> M.HashMap LocSymbol TInline -> Ghc (a, [(Symbol, Var)])
+runReifyM act wiredIns exprParams inlines = do
+  (x, s) <- runStateT (unReifyM act) initState
+  return (x, M.toList $ rs_freeSyms s)
+  where
+    initState = RS 0 wiredIns exprParams inlines mempty
+
+
+liftGhc :: Ghc a -> ReifyM a
+liftGhc = ReifyM . lift
+
+mkFreshInt :: ReifyM Integer
+mkFreshInt = ReifyM $ do
+  state@(RS { rs_freshInt = freshInt }) <- get
+  put $ state { rs_freshInt = freshInt + 1 }
+  return freshInt
+
+getWiredIns :: ReifyM WiredIns
+getWiredIns = ReifyM $ gets rs_wiredIns
+
+lookupExprParams :: TyCon -> ReifyM [Symbol]
+lookupExprParams tc = ReifyM $ do
+  env <- gets rs_exprParams
+  return $ fromMaybe [] $ lookupNameEnv env $ getName tc
+
+_lookupInline :: Symbol -> ReifyM (Maybe TInline)
+_lookupInline s = ReifyM $ gets (M.lookup (dummyLoc s) . rs_inlines)
+
+visitFreeSym :: Symbol -> Var -> ReifyM ()
+visitFreeSym sym var = ReifyM $ modify $ \st ->
+  st { rs_freeSyms = M.insert sym var $ rs_freeSyms st }
 
 --------------------------------------------------------------------------------
 -- Reify RType -----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyRTy :: Type -> SpecM SpecType
+reifyRTy :: Type -> ReifyM SpecType
 
 reifyRTy (TyVarTy tv)  =
   return $ rVar tv
@@ -73,8 +126,8 @@ reifyRTy (AppTy t1 t2) =
 reifyRTy (TyConApp tc as) = go =<< getWiredIns
   where
     go wis
-      | tc == tc_Bind wis, [s, b, _a] <- as =
-        invalidBind =<< reifyLocated reifySymbol s b
+      | tc == tc_Bind wis, [b, _a] <- as =
+        invalidBind =<< traverse reifySymbol =<< reifyLocated b
       | tc == tc_Refine wis, [a, b, p] <- as =
         strengthen <$> reifyRTy a <*> reifyRReft b p
       | tc == tc_ExprArgs wis, [a, es] <- as =
@@ -95,16 +148,14 @@ reifyRTy ty@(LitTy _) =
   malformed "type" ty
 
 
-reifyExprArgs :: Type -> Type -> SpecM SpecType
+reifyExprArgs :: Type -> Type -> ReifyM SpecType
 reifyExprArgs a@(TyConApp tc _) es = do
   a'     <- reifyRTy a
-  es'    <- mapM (go <=< reifyTuple) =<< reifyList es
-  params <- ai_exprParams <$> lookupAnnInfo tc
+  es'    <- mapM (traverse reifyExpr <=< reifyLocated) =<< reifyList es
+  params <- lookupExprParams tc
   if length params /= length es'
      then invalidExprArgs tc params es'
-     else return $ subst (mkSubst (zip params $ map snd es')) a'
-  where
-    go (s, e) = (,) <$> reifySpan s <*> reifyExpr e
+     else return $ subst (mkSubst (zip params $ map val es')) a'
 -- TODO: Report proper message when trying to apply expr args to non-type
 --       constructor
 reifyExprArgs a _ =
@@ -114,27 +165,27 @@ reifyExprArgs a _ =
 -- Reify RReft -----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyRReft :: Type -> Type -> SpecM RReft
+reifyRReft :: Type -> Type -> ReifyM RReft
 reifyRReft b r = do
   r' <- reifyReft b r
   return $ (mempty :: RReft) { ur_reft = r' }
 
 
-reifyReft :: Type -> Type -> SpecM Reft
+reifyReft :: Type -> Type -> ReifyM Reft
 reifyReft b r = do
   b' <- reifySymbol b
   r' <- reifyRefa r
   return $ Reft (b', r')
 
 
-reifyRefa :: Type -> SpecM Refa
+reifyRefa :: Type -> ReifyM Refa
 reifyRefa = fmap Refa . reifyPred
 
 --------------------------------------------------------------------------------
 -- Reify Pred -----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyPred :: Type -> SpecM Pred
+reifyPred :: Type -> ReifyM Pred
 reifyPred ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc as)
@@ -164,7 +215,7 @@ reifyPred ty = (`go` ty) =<< getWiredIns
 -- Reify Expr ------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyExpr :: Type -> SpecM Expr
+reifyExpr :: Type -> ReifyM Expr
 reifyExpr ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc as)
@@ -174,8 +225,8 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
         EVar <$> reifySymbol s
       | tc == pc_EParam wis, [s] <- as =
         EVar <$> reifySymbol s
-      | tc == pc_ECtr wis, [_, s, t] <- as =
-        (EVar . val) <$> reifyLocated reifyDataCon s t
+      | tc == pc_ECtr wis, [_, dc] <- as =
+        (EVar . val) <$> (traverse reifyDataCon =<< reifyLocated dc)
       | tc == pc_ENeg wis, [e] <- as =
         ENeg <$> reifyExpr e
       | tc == pc_EBin wis, [bop, e1, e2] <- as =
@@ -187,7 +238,7 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
     go _ _ = malformed "expression" ty
 
 
-reifyConstant :: Type -> SpecM Constant
+reifyConstant :: Type -> ReifyM Constant
 reifyConstant ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [a])
@@ -195,7 +246,7 @@ reifyConstant ty = (`go` ty) =<< getWiredIns
         I <$> reifyNat a
     go _ _ = malformed "constant" ty
 
-reifyBrel :: Type -> SpecM Brel
+reifyBrel :: Type -> ReifyM Brel
 reifyBrel ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [])
@@ -209,7 +260,7 @@ reifyBrel ty = (`go` ty) =<< getWiredIns
       | tc == pc_Une wis = return Une
     go _ _ = malformed "binary relation" ty
 
-reifyBop :: Type -> SpecM Bop
+reifyBop :: Type -> ReifyM Bop
 reifyBop ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc [])
@@ -224,10 +275,13 @@ reifyBop ty = (`go` ty) =<< getWiredIns
 -- Reify Data Constructor ------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyDataCon :: Type -> SpecM Symbol
+reifyDataCon :: Type -> ReifyM Symbol
 reifyDataCon (TyConApp tc _)
-  | Just dc <- isPromotedDataCon_maybe tc =
-    return $ varSymbol $ dataConWorkId dc
+  | Just dc <- isPromotedDataCon_maybe tc = do
+    let var = dataConWorkId dc
+    let sym = varSymbol var
+    visitFreeSym sym var
+    return sym
 reifyDataCon ty =
   malformed "data constructor" ty
 
@@ -235,7 +289,7 @@ reifyDataCon ty =
 -- Reify Components ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-reifyList :: Type -> SpecM [Type]
+reifyList :: Type -> ReifyM [Type]
 reifyList (TyConApp tc as)
   | tc `hasKey` consDataConKey, [_, x, xs] <- as =
     (x:) <$> reifyList xs
@@ -244,52 +298,51 @@ reifyList (TyConApp tc as)
 reifyList ty =
   malformed "type-level list" ty
 
-reifyTuple :: Type -> SpecM (Type, Type)
-reifyTuple (TyConApp tc as)
-  | tc == promotedTupleDataCon BoxedTuple 2, [_, _, x, y] <- as =
-    return (x, y)
-reifyTuple ty =
-  malformed "type-level tuple" ty
 
-
-reifyLocated :: (Type -> SpecM a) -> Type -> Type -> SpecM (Located a)
-reifyLocated f s x = do
-  (st, ed) <- reifySpan s
-  x'       <- f x
-  return $ Loc st ed x'
-
-reifySpan :: Type -> SpecM (SourcePos, SourcePos)
-reifySpan ty = (`go` ty) =<< getWiredIns
+reifyLocated :: Type -> ReifyM (Located Type)
+reifyLocated ty = (`go` ty) =<< getWiredIns
   where
-    go wis (TyConApp tc [filename, startLine, startCol, endLine, endCol])
-      | tc == pc_Span wis = do
-        filename'  <- reifyString filename
-        startLine' <- fromIntegral <$> reifyNat startLine
-        startCol'  <- fromIntegral <$> reifyNat startCol
-        endLine'   <- fromIntegral <$> reifyNat endLine
-        endCol'    <- fromIntegral <$> reifyNat endCol
-        return ( newPos filename' startLine' startCol'
-               , newPos filename' endLine'   endCol'
-               )
+    go wis (TyConApp tc [_, s, x])
+      | tc == pc_TyLocated wis = do
+        (start, end) <- reifySpan s
+        return $ Loc start end x
     go _ _ = malformed "location annotation" ty
 
+reifySpan :: Type -> ReifyM (SourcePos, SourcePos)
+reifySpan ty = (`go` ty) =<< getWiredIns
+  where
+    go wis (TyConApp tc [start, end])
+      | tc == pc_TySpan wis =
+        (,) <$> reifyPos start <*> reifyPos end
+    go _ _ = malformed "source span" ty
 
-reifyBind :: Type -> SpecM (Symbol, Type)
+reifyPos :: Type -> ReifyM SourcePos
+reifyPos ty = (`go` ty) =<< getWiredIns
+  where
+    go wis (TyConApp tc [name, line, col])
+      | tc == pc_TyPos wis = 
+        newPos <$> reifyString name
+               <*> (fromIntegral <$> reifyNat line)
+               <*> (fromIntegral <$> reifyNat col)
+    go _ _ = malformed "source position" ty
+
+
+reifyBind :: Type -> ReifyM (Symbol, Type)
 reifyBind ty = (`go` ty) =<< getWiredIns
   where
-    go wis (TyConApp tc [_s, b, a])
-      | tc == tc_Bind wis = (, a) <$> reifySymbol b
+    go wis (TyConApp tc [b, a])
+      | tc == tc_Bind wis = (, a) <$> (reifySymbol =<< (val <$> reifyLocated b))
     go _ _ = ((, ty) . tempSymbol "db") <$> mkFreshInt
 
 
-reifyString :: Type -> SpecM String
+reifyString :: Type -> ReifyM String
 reifyString (LitTy (StrTyLit s)) = return $ unpackFS s
 reifyString ty                   = malformed "symbol" ty
 
-reifySymbol :: Type -> SpecM Symbol
+reifySymbol :: Type -> ReifyM Symbol
 reifySymbol = fmap symbol . reifyString
 
-reifyNat :: Type -> SpecM Integer
+reifyNat :: Type -> ReifyM Integer
 reifyNat (LitTy (NumTyLit n)) = return n
 reifyNat ty                   = malformed "natural number" ty
 
@@ -297,16 +350,16 @@ reifyNat ty                   = malformed "natural number" ty
 -- Error Messages --------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-malformed :: GhcMonad m => String -> Type -> m a
-malformed desc ty = panic $
+malformed :: String -> Type -> ReifyM a
+malformed desc ty = liftGhc $ panic $
   "Malformed LiquidHaskell " ++ desc ++ " encoding: " ++ dumpType ty
 
-invalidBind :: GhcMonad m => Located Symbol -> m a
-invalidBind lb = panic $
+invalidBind :: Located Symbol -> ReifyM a
+invalidBind lb = liftGhc $ panic $
   "Bind cannot appear at this location: " ++ show lb
 
-invalidExprArgs :: GhcMonad m => TyCon -> [Symbol] -> [((SourcePos, SourcePos), Expr)] -> m a
-invalidExprArgs tc params es = panic $
+invalidExprArgs :: TyCon -> [Symbol] -> [Located Expr] -> ReifyM a
+invalidExprArgs tc params es = liftGhc $ panic $
   "Type synonym " ++ showPpr tc ++
   " expects " ++ show expected ++
   " expression arguments but has been given " ++ show actual ++
@@ -315,8 +368,8 @@ invalidExprArgs tc params es = panic $
     expected = length params
     actual   = length es
     (st, ed)
-      | actual > expected = fst (es !! expected)
-      | otherwise         = fst (last es)
+      | actual > expected = (loc &&& locE) (es !! expected)
+      | otherwise         = (loc &&& locE) (last es)
 
 dumpType :: Type -> String
 dumpType (TyVarTy tv) = "(TyVarTy " ++ showPpr tv ++ ")"
