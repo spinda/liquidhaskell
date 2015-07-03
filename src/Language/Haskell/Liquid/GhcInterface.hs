@@ -21,6 +21,7 @@ import DriverPipeline (compileFile)
 import Text.PrettyPrint.HughesPJ
 import HscTypes hiding (Target)
 import CoreSyn
+import TcRnTypes
 
 import Class
 import Var
@@ -42,7 +43,7 @@ import qualified Data.HashSet        as S
 import qualified Data.HashMap.Strict as M
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
-import System.Directory (removeFile, createDirectory, doesFileExist)
+import System.Directory (removeFile, createDirectoryIfMissing, doesFileExist)
 import Language.Fixpoint.Types hiding (Result, Expr)
 import Language.Fixpoint.Misc
 
@@ -63,58 +64,44 @@ import Language.Fixpoint.Files
 
 
 --------------------------------------------------------------------
-getGhcInfo :: Config -> FilePath -> IO (Either ErrorResult GhcInfo)
+getGhcInfo :: Config -> FilePath -> Module -> ModSummary -> ModGuts -> Ghc (GhcInfo, ModGuts)
 --------------------------------------------------------------------
-getGhcInfo cfg target = (Right <$> getGhcInfo' cfg target)
-                          `Ex.catch` (\(e :: SourceError) -> handle e)
-                          `Ex.catch` (\(e :: Error)       -> handle e)
-                          `Ex.catch` (\(e :: [Error])     -> handle e)
-  where
-    handle            = return . Left . result
+getGhcInfo cfg0 target mod summary guts = do
+  liftIO $ createDirectoryIfMissing False $ tempDirectory target
 
+  cfg                <- liftIO $ withCabal cfg0
+  updateDynFlags cfg
 
-getGhcInfo' cfg0 target
-  = runGhc (Just libdir) $ do
-      liftIO              $ cleanFiles target
-      addTarget         =<< guessTarget target Nothing
+  parsed             <- parseModule summary
+  let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
+  typechecked        <- typecheckModule $ ignoreInline parsed'
+  desugared          <- desugarModule typechecked
 
-      cfg                <- liftIO $ withCabal cfg0
-      updateDynFlags cfg
-      compileCFiles cfg
+  let guts'           = dm_core_module desugared
+  let guts''          = miModGuts (Just $ getDerivedDictionaries guts') guts'
+  hscEnv             <- getSession
+  coreBinds          <- liftIO $ anormalize (not $ nocaseexpand cfg) hscEnv guts''
 
-      -- TODO: Multi-module support
-      [summary]          <- depanal [] True
+  liftIO $ putStrLn $ showPpr coreBinds
 
-      parsed             <- parseModule summary
-      typecheckModule parsed
+  let datacons        = [ dataConWorkId dc
+                        | tc <- mgi_tcs guts''
+                        , dc <- tyConDataCons tc
+                        ]
+  let impVs           = importVars  coreBinds ++ classCons (mgi_cls_inst guts'')
+  let defVs           = definedVars coreBinds
+  let useVs           = readVars    coreBinds
+  let letVs           = letVars     coreBinds
+  let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst guts''
 
-      let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
-      typechecked        <- typecheckModule $ ignoreInline parsed'
-      desugared          <- desugarModule typechecked
-      loadModule desugared
+  spec               <- makeGhcSpec cfg (mgi_exports guts'') typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
 
-      let modguts         = getGhcModGuts1 desugared
-      hscEnv             <- getSession
-      coreBinds          <- liftIO $ anormalize (not $ nocaseexpand cfg) hscEnv modguts
+  let paths           = idirs cfg
+  liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
+  hqualFiles         <- moduleHquals guts'' paths target
 
-      let datacons        = [ dataConWorkId dc
-                            | tc <- mgi_tcs modguts
-                            , dc <- tyConDataCons tc
-                            ]
-      let impVs           = importVars  coreBinds ++ classCons (mgi_cls_inst modguts)
-      let defVs           = definedVars coreBinds
-      let useVs           = readVars    coreBinds
-      let letVs           = letVars     coreBinds
-      let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
-
-      setContext [IIModule $ moduleName $ ms_mod summary]
-      spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
-
-      let paths           = idirs cfg
-      liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
-      hqualFiles         <- moduleHquals modguts paths target
-
-      return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+  let info            = GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+  return              (info, guts)
 
 
 replaceModule :: ModuleName -> ModuleName -> ParsedModule -> ParsedModule
@@ -207,19 +194,12 @@ definedVars           = concatMap defs
 -- | Extracting CoreBindings From File ---------------------------
 ------------------------------------------------------------------
 
-getGhcModGuts1 :: DesugaredModule -> MGIModGuts
-getGhcModGuts1 desugared =
-   miModGuts (Just deriv) mod_guts
-   where
-     mod_guts = coreModule desugared
-     deriv    = getDerivedDictionaries mod_guts
-
 getDerivedDictionaries cm = instEnvElts $ mg_inst_env cm
 
 cleanFiles :: FilePath -> IO ()
 cleanFiles fn
   = do forM_ bins (tryIgnore "delete binaries" . removeFileIfExists)
-       tryIgnore "create temp directory" $ createDirectory dir
+       tryIgnore "create temp directory" $ createDirectoryIfMissing False dir
     where
        bins = replaceExtension fn <$> ["hi", "o"]
        dir  = tempDirectory fn

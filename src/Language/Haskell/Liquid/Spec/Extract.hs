@@ -23,11 +23,13 @@ import GHC hiding (Located)
 import Annotations
 import Bag
 import CoreSyn
+import HscTypes
 import MonadUtils
 import Name
 import NameEnv
 import Panic
 import Serialized
+import TcRnTypes
 import Var
 import VarEnv
 
@@ -59,15 +61,16 @@ import Language.Haskell.Liquid.Spec.Reify
 newtype ExtractM a = ExtractM { unExtractM :: ReaderT ExtractEnv Ghc a }
                      deriving (Functor, Applicative, Monad)
 
-data ExtractEnv = ER { er_annotations :: [Annotation]
-                     , er_coreEnv     :: VarEnv CoreExpr
+data ExtractEnv = EE { ee_tcModule    :: TypecheckedModule
+                     , ee_annotations :: [Annotation]
+                     , ee_coreEnv     :: VarEnv CoreExpr
                      }
 
 
-runExtractM :: ExtractM a -> [Annotation] -> [CoreBind] -> Ghc a
-runExtractM act anns cbs = runReaderT (unExtractM act) initEnv
+runExtractM :: ExtractM a -> TypecheckedModule -> [Annotation] -> [CoreBind] -> Ghc a
+runExtractM act tm anns cbs = runReaderT (unExtractM act) initEnv
   where
-    initEnv = ER anns (buildCoreEnv cbs)
+    initEnv = EE tm anns (buildCoreEnv cbs)
 
 buildCoreEnv :: [CoreBind] -> VarEnv CoreExpr
 buildCoreEnv = mkVarEnv . concatMap go
@@ -79,8 +82,19 @@ buildCoreEnv = mkVarEnv . concatMap go
 liftGhc :: Ghc a -> ExtractM a
 liftGhc = ExtractM . lift
 
+getTypecheckedModule :: ExtractM TypecheckedModule
+getTypecheckedModule = ExtractM $ asks ee_tcModule
+
+lookupTyThing :: Name -> ExtractM (Maybe TyThing)
+lookupTyThing name = do
+  env <- (tcg_type_env . fst . tm_internals_) <$> getTypecheckedModule
+  let local = lookupTypeEnv env name
+  case local of
+    Just thing -> return (Just thing)
+    Nothing    -> liftGhc $ lookupName name
+
 annotationsOfType :: (Data a, Typeable a) => ExtractM [(Name, a)]
-annotationsOfType = ExtractM $ asks (mapMaybe go . er_annotations)
+annotationsOfType = ExtractM $ asks (mapMaybe go . ee_annotations)
   where
     go (Annotation (NamedTarget name) payload)
       | Just val <- fromSerialized deserializeWithData payload =
@@ -88,7 +102,7 @@ annotationsOfType = ExtractM $ asks (mapMaybe go . er_annotations)
     go _ = Nothing
 
 lookupCoreBind :: Var -> ExtractM (Maybe CoreExpr)
-lookupCoreBind var = ExtractM $ asks (flip lookupVarEnv var . er_coreEnv)
+lookupCoreBind var = ExtractM $ asks (flip lookupVarEnv var . ee_coreEnv)
 
 --------------------------------------------------------------------------------
 -- Extraction Functions in ExtractM --------------------------------------------
@@ -106,14 +120,14 @@ extractTcEmbeds :: ExtractM (TCEmb TyCon)
 extractTcEmbeds = M.fromList <$> (mapM go =<< annotationsOfType)
   where
     go (name, RT.EmbedAs ftc) = do
-      Just (ATyCon tc) <- liftGhc $ lookupName name
+      Just (ATyCon tc) <- lookupTyThing name
       return (tc, convertFTycon $ convertLocated ftc)
 
 extractInlines :: ExtractM (VarEnv TInline)
 extractInlines = mkVarEnv <$> (mapM go =<< annotationsOfType)
   where
     go (name, RT.IsInline span) = do
-      Just (AnId var) <- liftGhc $ lookupName name
+      Just (AnId var) <- lookupTyThing name
       def             <- fromJust <$> lookupCoreBind var
       let sym          = convertLocated' span $ symbol $ getName var
       case runToLogic mempty $ coreToFun sym var def of
@@ -146,20 +160,18 @@ convertPos (RT.Pos name line col) = newPos name line col
 -- Extraction Functions in ReifyM ----------------------------------------------
 --------------------------------------------------------------------------------
 
-extractTySigs :: TypecheckedModule -> ReifyM [(Var, SpecType)]
-extractTySigs mod = do
-  liftIO $ putStrLn $ showPpr $ tm_typechecked_source mod
-  liftIO $ putStrLn $ showPpr ids
+extractTySigs :: ReifyM [(Var, SpecType)]
+extractTySigs = do
+  ids <- (idsFromSource . tm_typechecked_source) <$> getTypecheckedModule'
   mapM (\id -> (id, ) <$> reifyRTy (idType id)) ids
-  where
-    ids = idsFromSource $ tm_typechecked_source mod
 
-extractTySyns :: TypecheckedModule -> ReifyM [RTAlias RTyVar SpecType]
-extractTySyns mod = mapM go tysyns
+extractTySyns :: ReifyM [RTAlias RTyVar SpecType]
+extractTySyns = do
+  things <- (modInfoTyThings . tm_checked_module_info) <$> getTypecheckedModule'
+  let tycons = mapMaybe (\case { ATyCon tc -> Just tc; _ -> Nothing }) things
+  let tysyns = mapMaybe (\tc -> (tc, ) <$> synTyConDefn_maybe tc) tycons
+  mapM go tysyns
   where
-    things = modInfoTyThings $ tm_checked_module_info mod
-    tycons = mapMaybe (\case { ATyCon tc -> Just tc; _ -> Nothing }) things
-    tysyns = mapMaybe (\tc -> (tc, ) <$> synTyConDefn_maybe tc) tycons
     go (tc, (tvs, rhs)) = do
       rhs' <- reifyRTy rhs
       evs  <- lookupExprParams tc

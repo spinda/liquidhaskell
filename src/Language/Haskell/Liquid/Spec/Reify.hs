@@ -9,6 +9,7 @@ module Language.Haskell.Liquid.Spec.Reify (
     ReifyM
   , runReifyM
   , lookupExprParams
+  , getTypecheckedModule'
 
   , reifyRTy
   ) where
@@ -22,6 +23,7 @@ import DataCon
 import DynFlags
 import Exception
 import FastString
+import HscMain
 import HscTypes
 import IdInfo
 import MonadUtils
@@ -29,7 +31,9 @@ import Name
 import NameEnv
 import Panic
 import PrelNames
+import RdrName
 import Serialized
+import TcRnTypes
 import TyCon
 import Type
 import TypeRep
@@ -69,6 +73,7 @@ newtype ReifyM a = ReifyM { unReifyM :: StateT ReifyState Ghc a }
                    deriving (Functor, Applicative, Monad, MonadIO)
 
 data ReifyState = RS { rs_freshInt   :: Integer
+                     , rs_tcModule   :: TypecheckedModule
                      , rs_wiredIns   :: WiredIns
                      , rs_exprParams :: NameEnv [Symbol]
                      , rs_inlines    :: VarEnv TInline
@@ -76,12 +81,12 @@ data ReifyState = RS { rs_freshInt   :: Integer
                      }
 
 
-runReifyM :: ReifyM a -> WiredIns -> NameEnv [Symbol] -> VarEnv TInline -> Ghc (a, [(Symbol, Var)])
-runReifyM act wiredIns exprParams inlines = do
+runReifyM :: ReifyM a -> TypecheckedModule -> WiredIns -> NameEnv [Symbol] -> VarEnv TInline -> Ghc (a, [(Symbol, Var)])
+runReifyM act tm wiredIns exprParams inlines = do
   (x, s) <- runStateT (unReifyM act) initState
   return (x, M.toList $ rs_freeSyms s)
   where
-    initState = RS 0 wiredIns exprParams inlines mempty
+    initState = RS 0 tm wiredIns exprParams inlines mempty
 
 
 liftGhc :: Ghc a -> ReifyM a
@@ -93,6 +98,17 @@ mkFreshInt = ReifyM $ do
   put $ state { rs_freshInt = freshInt + 1 }
   return freshInt
 
+getTypecheckedModule' :: ReifyM TypecheckedModule
+getTypecheckedModule' = ReifyM $ gets rs_tcModule
+
+lookupTyThing :: Name -> ReifyM (Maybe TyThing)
+lookupTyThing name = do
+  env <- (tcg_type_env . fst . tm_internals_) <$> getTypecheckedModule'
+  let local = lookupTypeEnv env name
+  case local of
+    Just thing -> return (Just thing)
+    Nothing    -> liftGhc $ lookupName name
+
 getWiredIns :: ReifyM WiredIns
 getWiredIns = ReifyM $ gets rs_wiredIns
 
@@ -103,8 +119,11 @@ lookupExprParams tc = ReifyM $ do
 
 lookupInline :: Located Symbol -> ReifyM (Maybe TInline)
 lookupInline s = do
-  names  <- liftGhc $ ghandle catchNotInScope $ parseName $ symbolString $ val s
-  things <- liftGhc $ mapMaybeM lookupName names
+  hscEnv   <- liftGhc getSession 
+  rdr      <- liftIO $ hscParseIdentifier hscEnv $ symbolString $ val s
+  gre      <- (tcg_rdr_env . fst . tm_internals_) <$> getTypecheckedModule'
+  let names = map gre_name (lookupGRE_RdrName (unLoc rdr) gre)
+  things   <- mapMaybeM lookupTyThing names
   let var = listToMaybe $ mapMaybe findVar things
   case var of
     Nothing  -> return Nothing

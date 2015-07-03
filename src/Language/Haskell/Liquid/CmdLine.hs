@@ -167,10 +167,12 @@ config = cmdArgsMode $ Config {
               , "  liquid foo.hs "
               ]
 
-getOpts :: IO Config
-getOpts = do
+-- TODO: Take this out of IO
+-- TODO: Redo argument format for GHC plugin style
+getOpts :: [String] -> IO Config
+getOpts args = do
   cfg0    <- envCfg
-  cfg1    <- mkOpts =<< cmdArgsRun' config
+  cfg1    <- mkOpts =<< cmdArgsRun' config args
   cfg     <- fixConfig $ mconcat [cfg0, cfg1]
   whenNormal $ putStrLn copyright
   case smtsolver cfg of
@@ -182,15 +184,15 @@ getOpts = do
   where
     noSmtError = "LiquidHaskell requires an SMT Solver, i.e. z3, cvc4, or mathsat to be installed."
 
-cmdArgsRun' :: Mode (CmdArgs a) -> IO a
-cmdArgsRun' mode
-  = do parseResult <- process mode <$> getArgs
-       case parseResult of
-         Left err ->
-           putStrLn (help err) >> exitFailure
-         Right args ->
-           cmdArgsApply args
+cmdArgsRun' :: Mode (CmdArgs a) -> [String] -> IO a
+cmdArgsRun' mode args
+  = case result of
+      Left err ->
+        putStrLn (help err) >> exitFailure
+      Right args ->
+        cmdArgsApply args
     where
+      result   = process mode args
       help err = showText defaultWrap $ helpText [err] HelpFormatDefault mode
 
 findSmtSolver :: SMTSolver -> IO (Maybe SMTSolver)

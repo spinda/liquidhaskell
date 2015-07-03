@@ -51,82 +51,6 @@ Flag include
   Description: use in-tree include directory
   Default:     False
 
-Executable liquid
-  default-language: Haskell98
-  Build-Depends: base >= 4 && < 5
-               , ghc>=7.8.3
-               , ansi-terminal
-               , template-haskell
-               , liquidhaskell-lang
-               , time
-               , array
-               , hpc
-               , bifunctors
-               , cmdargs
-               , containers
-               , cpphs
-               , data-default
-               , deepseq
-               , directory
-               , Diff
-               , filemanip
-               , filepath
-               , ghc-paths
-               , hscolour
-               , mtl
-               , parsec
-               , pretty
-               , process
-               , syb
-               , text
-               , vector
-               , liquid-fixpoint
-               , hashable
-               , unordered-containers
-               , aeson
-               , bytestring
-               , fingertree
-               , liquidhaskell
-
-  Main-is: Liquid.hs
-  ghc-options: -Werror -W  -fno-warn-unused-imports -fno-warn-dodgy-imports -fno-warn-deprecated-flags -fno-warn-deprecations
-  Default-Extensions: PatternGuards
-
--- Executable liquid-count-binders
---   Build-Depends: base >= 4 && < 5
---                , ghc==7.6.3
---                , ansi-terminal
---                , bifunctors
---                , cmdargs
---                , containers
---                , cpphs
---                , deepseq
---                , directory
---                , Diff
---                , filemanip
---                , filepath
---                , ghc-paths
---                , hscolour
---                , mtl
---                , parsec
---                , pretty
---                , process
---                , syb
---                , text
---                , vector
---                , liquid-fixpoint
---                , hashable
---                , unordered-containers
---                , aeson
---                , bytestring
---                , fingertree
---                , liquidhaskell
---                
---   Main-is: CountBinders.hs
---   --ghc-options: -O -W
---   Extensions: PatternGuards
-
-
 Library
    Default-Language: Haskell98
    Build-Depends: base
@@ -167,7 +91,8 @@ Library
  
    hs-source-dirs:  src, include
  
-   Exposed-Modules: Language.Haskell.Liquid.Prelude,
+   Exposed-Modules: LiquidHaskell.Plugin,
+                    Language.Haskell.Liquid.Prelude,
                     Language.Haskell.Liquid.Foreign, 
                     Language.Haskell.Liquid.List, 
                     Language.Haskell.Liquid.PrettyPrint, 

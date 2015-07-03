@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 
-module Language.Haskell.Liquid.Spec (
+ module Language.Haskell.Liquid.Spec (
     GhcSpec(..)
   , makeGhcSpec
   ) where
@@ -37,11 +37,11 @@ import Language.Haskell.Liquid.Spec.WiredIns
 --------------------------------------------------------------------------------
 
 makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> Ghc GhcSpec
-makeGhcSpec cfg exports mod vs anns cbs = do
+makeGhcSpec cfg exports tm vs anns cbs = do
   liftIO $ whenLoud $ putStrLn "extraction started..."
   wiredIns                        <- loadWiredIns
-  (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns cbs
-  ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns exprParams inlines
+  (exprParams, tcEmbeds, inlines) <- runExtractM doExtract tm anns cbs
+  ((tySigs, tySyns), freeSyms)    <- runReifyM doReify tm wiredIns exprParams inlines
   let freeSyms' = map (second (joinVar vs)) freeSyms
   liftIO $ mapM_ printTySyn tySyns
   return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) tySigs
@@ -55,8 +55,8 @@ makeGhcSpec cfg exports mod vs anns cbs = do
       <*> extractTcEmbeds
       <*> extractInlines
     doReify = (,)
-      <$> extractTySigs mod
-      <*> extractTySyns mod
+      <$> extractTySigs
+      <*> extractTySyns
 
     printTySyn (RTA name targs vargs body _ _) = whenLoud $
       do putStrLn $ "=== type synonym: " ++ showpp name ++ " ==="
