@@ -64,10 +64,6 @@ makeGhcSpec cfg exports mod vs anns cbs = do
          putStrLn $ "vargs: " ++ showpp vargs
          putStrLn $ "body: " ++ showpp body
 
-emptySpec :: Config -> GhcSpec
-emptySpec cfg =
-  SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty cfg mempty [] mempty mempty
-
 -- the Vars we lookup in GHC don't always have the same tyvars as the Vars
 -- we're given, so return the original var when possible.
 -- see tests/pos/ResolvePred.hs for an example

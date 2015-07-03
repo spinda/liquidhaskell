@@ -208,7 +208,12 @@ Library
                     Language.Haskell.Liquid.Visitors,
                     Language.Haskell.Liquid.WiredIn,
                     Language.Haskell.Liquid.Names,
+                    Language.Haskell.Liquid.Iface,
                     Paths_liquidhaskell,
+
+                    Language.Haskell.Liquid.Iface.Binary,
+                    Language.Haskell.Liquid.Iface.Ghc,
+                    Language.Haskell.Liquid.Iface.Types,
 
                     Language.Haskell.Liquid.Spec.Extract,
                     Language.Haskell.Liquid.Spec.Reify,

@@ -24,7 +24,7 @@ module Language.Haskell.Liquid.Types (
 
   -- * Ghc Information
   , GhcInfo (..)
-  , GhcSpec (..)
+  , GhcSpec (..), emptySpec
   , TargetVars (..)
 
   -- * Located Things
@@ -41,6 +41,7 @@ module Language.Haskell.Liquid.Types (
   -- * Refined Type Constructors
   , RTyCon (RTyCon, rtc_tc, rtc_info)
   , TyConInfo(..), defaultTyConInfo
+  , SizeFunction(..)
   , rTyConPVs
   , rTyConPropVs
   , isClassRTyCon, isClassType
@@ -365,7 +366,7 @@ data GhcSpec = SP {
   , decr       :: ![(Var, [Int])]                -- ^ Lexicographically ordered size witnesses for termination
   , texprs     :: ![(Var, [Expr])]               -- ^ Lexicographically ordered expressions for termination
   , lvars      :: !(S.HashSet Var)               -- ^ Variables that should be checked in the environment they are used
-  , lazy       :: !(S.HashSet Var)             -- ^ Binders to IGNORE during termination checking
+  , lazy       :: !(S.HashSet Var)               -- ^ Binders to IGNORE during termination checking
   , autosize   :: !(S.HashSet TyCon)             -- ^ Binders to IGNORE during termination checking
   , config     :: !Config                        -- ^ Configuration Options
   , exports    :: !NameSet                       -- ^ `Name`s exported by the module being verified
@@ -373,6 +374,10 @@ data GhcSpec = SP {
   , tyconEnv   :: M.HashMap TyCon RTyCon
   , dicts      :: DEnv Var SpecType              -- ^ Dictionary Environment
   }
+
+emptySpec :: Config -> GhcSpec
+emptySpec cfg =
+  SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty cfg mempty [] mempty mempty
 
 type LogicMap = M.HashMap Symbol LMap
 
@@ -401,7 +406,7 @@ data TyConP = TyConP { freeTyVarsTy :: ![RTyVar]
                      , freeLabelTy  :: ![Symbol]
                      , varianceTs   :: !VarianceInfo
                      , variancePs   :: !VarianceInfo
-                     , sizeFun      :: !(Maybe (Symbol -> Expr))
+                     , sizeFun      :: !(Maybe SizeFunction)
                      } deriving (Generic, Data, Typeable)
 
 data DataConP = DataConP { dc_loc     :: !SourcePos
@@ -592,8 +597,10 @@ instance Default TyConInfo where
 data TyConInfo = TyConInfo
   { varianceTyArgs  :: !VarianceInfo             -- ^ variance info for type variables
   , variancePsArgs  :: !VarianceInfo             -- ^ variance info for predicate variables
-  , sizeFunction    :: !(Maybe (Symbol -> Expr)) -- ^ logical function that computes the size of the structure
+  , sizeFunction    :: !(Maybe SizeFunction)     -- ^ logical function that computes the size of the structure
   } deriving (Generic, Data, Typeable)
+
+data SizeFunction = NumSizeFun | LenSizeFun deriving (Generic, Data, Typeable)
 
 -- instance {-# OVERLAPPING #-} Data TyConInfo
 
