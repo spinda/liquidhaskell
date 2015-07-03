@@ -43,24 +43,23 @@ import qualified Data.HashMap.Strict as M
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 import System.Directory (removeFile, createDirectoryIfMissing, doesFileExist)
-import Language.Fixpoint.Types hiding (Result, Expr)
 import Language.Fixpoint.Misc
+import Language.Fixpoint.Names
+import Language.Fixpoint.Files
+import Language.Fixpoint.Types hiding (Result, Expr)
 
 import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.ANFTransform
 import Language.Haskell.Liquid.GhcMisc
+import Language.Haskell.Liquid.Iface
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
 import Language.Haskell.Liquid.Spec
 import Language.Haskell.Liquid.Visitors
 import Language.Haskell.Liquid.CmdLine (withCabal, withPragmas)
+
 import qualified Language.Haskell.Liquid.Measure as Ms
-
-import Language.Fixpoint.Names
-import Language.Fixpoint.Files
-
-
 
 --------------------------------------------------------------------
 getGhcInfo :: Config -> FilePath -> IO (Either ErrorResult GhcInfo)
@@ -109,6 +108,9 @@ getGhcInfo' cfg0 target
 
       setContext [IIModule $ moduleName $ ms_mod summary]
       spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
+      liftIO $ writeIfaceSpec "test.lqhi" spec
+      spec'              <- readIfaceSpec "test.lqhi" $ ms_mod $ pm_mod_summary parsed
+      liftIO $ putStrLn $ showpp spec'
 
       let paths           = idirs cfg
       liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)

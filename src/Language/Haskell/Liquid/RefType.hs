@@ -49,6 +49,7 @@ module Language.Haskell.Liquid.RefType (
   , classBinds
 
   , isSizeable
+  , appSizeFun
 
   -- * Manipulating Refinements in RTypes
   , rTypeSortedReft
@@ -587,7 +588,7 @@ isNumeric tce c
        (M.lookup (rtc_tc c) tce) == F.intFTyCon
 
 addNumSizeFun c
-  = c {rtc_info = (rtc_info c) {sizeFunction = Just EVar} }
+  = c {rtc_info = (rtc_info c) {sizeFunction = Just NumSizeFun} }
 
 
 generalize :: (RefTypable c tv r) => RType c tv r -> RType c tv r
@@ -1058,15 +1059,15 @@ mkDType autoenv xvs acc [(v, (x, t))]
   = (x, ) $ t `strengthen` tr
   where
     tr = uTop $ Reft (vv, Refa $ pOr (r:acc))
-    r  = cmpLexRef xvs (v', vv, f)
+    r  = cmpLexRef xvs (v', vv, appSizeFun f)
     v' = symbol v
     f  = mkDecrFun autoenv  t
     vv = "vvRec"
 
 mkDType autoenv xvs acc ((v, (x, t)):vxts)
-  = mkDType autoenv ((v', x, f):xvs) (r:acc) vxts
+  = mkDType autoenv ((v', x, appSizeFun f):xvs) (r:acc) vxts
   where
-    r  = cmpLexRef xvs  (v', x, f)
+    r  = cmpLexRef xvs  (v', x, appSizeFun f)
     v' = symbol v
     f  = mkDecrFun autoenv t
 
@@ -1077,13 +1078,17 @@ mkDType _ _ _ _
 isSizeable  :: S.HashSet TyCon -> TyCon -> Bool
 isSizeable autoenv tc =  S.member tc autoenv --   TC.isAlgTyCon tc -- && TC.isRecursiveTyCon tc
 
+appSizeFun :: SizeFunction -> Symbol -> Expr
+appSizeFun NumSizeFun = F.EVar
+appSizeFun LenSizeFun = F.EApp lenLocSymbol . return . F.EVar
+
 mkDecrFun autoenv (RApp c _ _ _)
   | Just f <- sizeFunction $ rtc_info c
   = f
   | isSizeable autoenv $ rtc_tc c
-  = \v -> F.EApp lenLocSymbol [F.EVar v]
+  = LenSizeFun
 mkDecrFun _ (RVar _ _)
-  = EVar
+  = NumSizeFun
 mkDecrFun _ _
   = errorstar "RefType.mkDecrFun called on invalid input"
 
@@ -1113,7 +1118,7 @@ makeLexReft _ _ _ _
 
 -------------------------------------------------------------------------------
 
-mkTyConInfo :: TyCon -> VarianceInfo -> VarianceInfo -> (Maybe (Symbol -> Expr)) -> TyConInfo
+mkTyConInfo :: TyCon -> VarianceInfo -> VarianceInfo -> (Maybe SizeFunction) -> TyConInfo
 
 mkTyConInfo c usertyvar userprvariance f
   = TyConInfo (if null usertyvar then defaulttyvar else usertyvar) userprvariance f
