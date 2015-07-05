@@ -16,8 +16,6 @@ import InstEnv
 import Bag (bagToList)
 import ErrUtils
 import GHC hiding (Target, desugarModule)
-import DriverPhases (Phase(..))
-import DriverPipeline (compileFile)
 import Text.PrettyPrint.HughesPJ
 import HscTypes hiding (Target)
 import CoreSyn
@@ -52,7 +50,6 @@ import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.ANFTransform
 import Language.Haskell.Liquid.GhcMisc
-import Language.Haskell.Liquid.Iface
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
 import Language.Haskell.Liquid.Spec
@@ -61,62 +58,40 @@ import Language.Haskell.Liquid.CmdLine (withCabal, withPragmas)
 
 import qualified Language.Haskell.Liquid.Measure as Ms
 
---------------------------------------------------------------------
-getGhcInfo :: Config -> FilePath -> IO (Either ErrorResult GhcInfo)
---------------------------------------------------------------------
-getGhcInfo cfg target = (Right <$> getGhcInfo' cfg target)
-                          `Ex.catch` (\(e :: SourceError) -> handle e)
-                          `Ex.catch` (\(e :: Error)       -> handle e)
-                          `Ex.catch` (\(e :: [Error])     -> handle e)
-  where
-    handle            = return . Left . result
+getGhcInfo :: Config -> FilePath -> ModSummary -> Ghc GhcInfo
+getGhcInfo cfg hsFile summary = do
+  liftIO              $ cleanFiles hsFile
 
+  parsed             <- parseModule summary
+  typecheckModule parsed
 
-getGhcInfo' cfg0 target
-  = runGhc (Just libdir) $ do
-      liftIO              $ cleanFiles target
-      addTarget         =<< guessTarget target Nothing
+  let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
+  typechecked        <- typecheckModule $ ignoreInline parsed'
+  desugared          <- desugarModule typechecked
+  loadModule desugared
 
-      cfg                <- liftIO $ withCabal cfg0
-      updateDynFlags cfg
-      compileCFiles cfg
+  let modguts         = getGhcModGuts1 desugared
+  hscEnv             <- getSession
+  coreBinds          <- liftIO $ anormalize (not $ nocaseexpand cfg) hscEnv modguts
 
-      -- TODO: Multi-module support
-      [summary]          <- depanal [] True
+  let datacons        = [ dataConWorkId dc
+                        | tc <- mgi_tcs modguts
+                        , dc <- tyConDataCons tc
+                        ]
+  let impVs           = importVars  coreBinds ++ classCons (mgi_cls_inst modguts)
+  let defVs           = definedVars coreBinds
+  let useVs           = readVars    coreBinds
+  let letVs           = letVars     coreBinds
+  let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
 
-      parsed             <- parseModule summary
-      typecheckModule parsed
+  setContext [IIModule $ moduleName $ ms_mod summary]
+  spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
 
-      let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
-      typechecked        <- typecheckModule $ ignoreInline parsed'
-      desugared          <- desugarModule typechecked
-      loadModule desugared
+  let paths           = idirs cfg
+  liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
+  hqualFiles         <- moduleHquals modguts paths hsFile
 
-      let modguts         = getGhcModGuts1 desugared
-      hscEnv             <- getSession
-      coreBinds          <- liftIO $ anormalize (not $ nocaseexpand cfg) hscEnv modguts
-
-      let datacons        = [ dataConWorkId dc
-                            | tc <- mgi_tcs modguts
-                            , dc <- tyConDataCons tc
-                            ]
-      let impVs           = importVars  coreBinds ++ classCons (mgi_cls_inst modguts)
-      let defVs           = definedVars coreBinds
-      let useVs           = readVars    coreBinds
-      let letVs           = letVars     coreBinds
-      let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
-
-      setContext [IIModule $ moduleName $ ms_mod summary]
-      spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
-      liftIO $ writeIfaceSpec "test.lqhi" spec
-      spec'              <- readIfaceSpec "test.lqhi" $ ms_mod $ pm_mod_summary parsed
-      liftIO $ putStrLn $ showpp spec'
-
-      let paths           = idirs cfg
-      liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
-      hqualFiles         <- moduleHquals modguts paths target
-
-      return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+  return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
 
 
 replaceModule :: ModuleName -> ModuleName -> ParsedModule -> ParsedModule
@@ -159,41 +134,6 @@ derivedVs cbs fd = concatMap bindersOf cbf ++ deps
 
         grapDep :: CoreExpr -> [Id]
         grapDep e           = freeVars S.empty e
-
-updateDynFlags cfg
-  = do df <- getSessionDynFlags
-       let df' = df { importPaths  = idirs cfg ++ importPaths df
-                    , libraryPaths = idirs cfg ++ libraryPaths df
-                    , includePaths = idirs cfg ++ includePaths df
-                    , profAuto     = ProfAutoCalls
-                    , ghcLink      = LinkInMemory
-                    --FIXME: this *should* be HscNothing, but that prevents us from
-                    -- looking up *unexported* names in another source module..
-                    , hscTarget    = HscInterpreted -- HscNothing
-                    , ghcMode      = CompManager
-                    -- prevent GHC from printing anything
-                    , log_action   = \_ _ _ _ _ -> return ()
-                    -- , verbosity = 3
-                    } `xopt_set` Opt_MagicHash
-                  --     `gopt_set` Opt_Hpc
-                      `gopt_set` Opt_ImplicitImportQualified
-                      `gopt_set` Opt_PIC
-#if __GLASGOW_HASKELL__ >= 710
-                      `gopt_set` Opt_Debug
-#endif
-       (df'',_,_) <- parseDynamicFlags df' (map noLoc $ ghcOptions cfg)
-       setSessionDynFlags $ df'' -- {profAuto = ProfAutoAll}
-
-compileCFiles cfg
-  = do df  <- getSessionDynFlags
-       setSessionDynFlags $ df { includePaths = nub $ idirs cfg ++ includePaths df
-                               , importPaths  = nub $ idirs cfg ++ importPaths df
-                               , libraryPaths = nub $ idirs cfg ++ libraryPaths df }
-       hsc <- getSession
-       os  <- mapM (\x -> liftIO $ compileFile hsc StopLn (x,Nothing)) (nub $ cFiles cfg)
-       df  <- getSessionDynFlags
-       setSessionDynFlags $ df { ldInputs = map (FileOption "") os ++ ldInputs df }
-
 
 mgi_namestring = moduleNameString . moduleName . mgi_module
 

@@ -24,7 +24,7 @@ module Language.Haskell.Liquid.Types (
 
   -- * Ghc Information
   , GhcInfo (..)
-  , GhcSpec (..), emptySpec
+  , GhcSpec (..)
   , TargetVars (..)
 
   -- * Located Things
@@ -374,10 +374,6 @@ data GhcSpec = SP {
   , tyconEnv   :: M.HashMap TyCon RTyCon
   , dicts      :: DEnv Var SpecType              -- ^ Dictionary Environment
   }
-
-emptySpec :: Config -> GhcSpec
-emptySpec cfg =
-  SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty cfg mempty [] mempty mempty
 
 type LogicMap = M.HashMap Symbol LMap
 
