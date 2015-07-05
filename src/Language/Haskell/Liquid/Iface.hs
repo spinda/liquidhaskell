@@ -105,7 +105,7 @@ instance Iface GhcSpec IfaceSpec where
     freeSyms   <- mapM (secondM lookupIfaceVar) ifaceFreeSyms
     tcEmbeds   <- M.fromList <$> mapM (firstM tcIfaceTyCon) ifaceTcEmbeds
     tyconEnv   <- M.fromList <$> mapM ofTyConEnv ifaceTyConEnv
-    return $ (emptySpec mempty)
+    return $ mempty
       { tySigs     = tySigs
       , asmSigs    = asmSigs
       , ctors      = ctors
