@@ -27,6 +27,7 @@ import System.Console.CmdArgs.Verbosity (whenLoud)
 
 import Language.Fixpoint.Types
 
+import Language.Haskell.Liquid.CmdLine ()
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.PrettyPrint
 import Language.Haskell.Liquid.Types
@@ -43,12 +44,12 @@ makeGhcSpec cfg exports mod vs anns cbs = do
   (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns cbs
   ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns exprParams inlines
   let freeSyms' = map (second (joinVar vs)) freeSyms
-  liftIO $ mapM_ printTySyn tySyns
-  return $ (emptySpec cfg) { tySigs   = map (second dummyLoc) tySigs
-                           , exports  = exports
-                           , tcEmbeds = tcEmbeds
-                           , freeSyms = freeSyms'
-                           }
+  return $ mempty { tySigs   = map (second dummyLoc) tySigs
+                  , exports  = exports
+                  , tcEmbeds = tcEmbeds
+                  , freeSyms = freeSyms'
+                  , config   = cfg
+                  }
   where
     doExtract = (,,)
       <$> extractExprParams
@@ -57,12 +58,6 @@ makeGhcSpec cfg exports mod vs anns cbs = do
     doReify = (,)
       <$> extractTySigs mod
       <*> extractTySyns mod
-
-    printTySyn (RTA name targs vargs body _ _) = whenLoud $
-      do putStrLn $ "=== type synonym: " ++ showpp name ++ " ==="
-         putStrLn $ "targs: " ++ showpp targs
-         putStrLn $ "vargs: " ++ showpp vargs
-         putStrLn $ "body: " ++ showpp body
 
 -- the Vars we lookup in GHC don't always have the same tyvars as the Vars
 -- we're given, so return the original var when possible.

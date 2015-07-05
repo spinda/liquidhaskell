@@ -33,6 +33,7 @@ import           Bag
 import           ErrUtils
 import           CoreLint
 import           CoreMonad
+import           GhcMonad
 
 import           Language.Fixpoint.Names      (dropModuleNames)
 import           Text.Parsec.Pos              (sourceName, sourceLine, sourceColumn, SourcePos, newPos)
@@ -466,7 +467,7 @@ tyConTyVarsDef c = TC.tyConTyVars c
 gHC_VERSION :: String
 gHC_VERSION = show __GLASGOW_HASKELL__
 
-desugarModule :: TypecheckedModule -> Ghc DesugaredModule
+desugarModule :: GhcMonad m => TypecheckedModule -> m DesugaredModule
 
 symbolFastString :: Symbol -> FastString
 

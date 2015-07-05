@@ -209,6 +209,7 @@ Library
                     Language.Haskell.Liquid.WiredIn,
                     Language.Haskell.Liquid.Names,
                     Language.Haskell.Liquid.Iface,
+                    Language.Haskell.Liquid.Driver,
                     Paths_liquidhaskell,
 
                     Language.Haskell.Liquid.Iface.Binary,
