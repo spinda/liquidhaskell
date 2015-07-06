@@ -6,7 +6,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Language.Haskell.Liquid.Iface (
-    writeIfaceSpec
+    findIfaceSpec
+  , writeIfaceSpec
   , readIfaceSpec
   ) where
 
@@ -15,6 +16,7 @@ import GHC hiding (L, Located)
 import BinIface
 import Exception
 import FastMutInt
+import Finder
 import GhcMonad
 import HscTypes
 import IfaceEnv
@@ -40,10 +42,13 @@ import Data.Typeable (Typeable)
 
 import qualified Data.HashMap.Strict as M
 
+import System.Directory
+import System.FilePath
+
 import Text.Parsec.Pos
 
 import Language.Fixpoint.Misc
-import Language.Fixpoint.Types hiding (Predicate)
+import Language.Fixpoint.Types hiding (Found, Predicate)
 
 import Language.Haskell.Liquid.CmdLine
 import Language.Haskell.Liquid.GhcMisc
@@ -54,6 +59,26 @@ import Language.Haskell.Liquid.Types hiding (L, R)
 import Language.Haskell.Liquid.Iface.Binary ()
 import Language.Haskell.Liquid.Iface.Ghc
 import Language.Haskell.Liquid.Iface.Types
+
+--------------------------------------------------------------------------------
+-- Liquid Interface File Locations ---------------------------------------------
+--------------------------------------------------------------------------------
+
+findIfaceSpec :: GhcMonad m => Module -> m (Maybe FilePath)
+findIfaceSpec = findIfaceWithHiFile
+
+findIfaceWithHiFile :: GhcMonad m => Module -> m (Maybe FilePath)
+findIfaceWithHiFile mod = do
+  hscEnv <- getSession
+  result <- liftIO $ findExactModule hscEnv mod
+  case result of
+    Found loc _ -> liftIO $ do
+      let lqhiFile = replaceExtension (ml_hi_file loc) "lqhi"
+      lqhiExists <- doesFileExist lqhiFile
+      return $ if lqhiExists
+        then Just lqhiFile
+        else Nothing
+    _ -> return Nothing
 
 --------------------------------------------------------------------------------
 -- Read/Write Liquid Interface Files -------------------------------------------
