@@ -1,4 +1,6 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Language.Haskell.Liquid.Driver (
     processModules
@@ -12,6 +14,8 @@ import DriverPhases (Phase(..))
 import DriverPipeline (compileFile)
 import DynFlags
 import GhcMonad
+import HscTypes
+import MonadUtils
 import Panic
 import Var
 
@@ -20,6 +24,9 @@ import Control.Monad
 
 import Data.List
 import Data.Maybe
+
+import qualified Data.HashMap.Strict as M
+import qualified Data.HashSet        as S
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 import System.Console.CmdArgs.Default
@@ -44,7 +51,9 @@ import Language.Haskell.Liquid.Constraint.Types
 import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.GhcInterface
 import Language.Haskell.Liquid.Iface
+import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.RefType
+import Language.Haskell.Liquid.PrettyPrint
 import Language.Haskell.Liquid.TransformRec
 import Language.Haskell.Liquid.Types
 
@@ -62,6 +71,8 @@ processModules cfg0 targets = runGhc (Just libdir) $ do
   compileCFiles cfg
 
   summaries          <- depanal [] True
+  scope              <- prepopScopeEnv summaries
+  liftIO $ putStrLn $ render $ pprintLongList $ M.toList scope
   foldM_ (processModule cfg) mempty summaries
 
 updateDynFlags :: Config -> Ghc ()
@@ -99,6 +110,48 @@ compileCFiles cfg = do
   os  <- mapM (\x -> liftIO $ compileFile hsc StopLn (x,Nothing)) (nub $ cFiles cfg)
   df  <- getSessionDynFlags
   void $ setSessionDynFlags $ df { ldInputs = map (FileOption "") os ++ ldInputs df }
+
+--------------------------------------------------------------------------------
+
+type ScopeEnv = M.HashMap Module GhcSpec
+
+prepopScopeEnv :: [ModSummary] -> Ghc ScopeEnv
+prepopScopeEnv summaries = do
+  pkgImports <- S.toList <$> getAllPkgImports summaries
+  pkgIfaces  <- mapM findIfaceSpec pkgImports
+  M.fromList <$> zipWithM tryLoadIface pkgImports pkgIfaces
+  where
+    tryLoadIface mod =
+      fmap (mod, ) . maybe (return mempty) (`readIfaceSpec` mod)
+
+
+getAllPkgImports :: [ModSummary] -> Ghc (S.HashSet Module)
+getAllPkgImports = fmap S.unions . mapM getPkgImports
+
+getPkgImports :: ModSummary -> Ghc (S.HashSet Module)
+getPkgImports summary =
+  S.union <$> getPkgDeclImports summary <*> getPkgUsageImports (ms_mod summary)
+
+getPkgDeclImports :: ModSummary -> Ghc (S.HashSet Module)
+getPkgDeclImports summary = do
+  homePkg <- thisPackage <$> getSessionDynFlags
+  fmap (S.fromList . filter (isExternal homePkg)) $ mapM ofDecl $ ms_textual_imps summary
+  where
+    ofDecl (unLoc -> decl) =
+      findModule (unLoc $ ideclName decl) (ideclPkgQual decl)
+    isExternal homePkg =
+      (homePkg /=) . modulePackageKey
+
+getPkgUsageImports :: Module -> Ghc (S.HashSet Module)
+getPkgUsageImports mod = do
+  info <- getModuleInfo mod
+  case info of
+    Just (modInfoIface -> Just iface) ->
+      return $ S.fromList $ mapMaybe ofUsage $ mi_usages iface
+    _ -> return mempty
+    where
+      ofUsage (UsagePackageModule { usg_mod = usedMod }) = Just usedMod
+      ofUsage _ = Nothing
 
 --------------------------------------------------------------------------------
 
