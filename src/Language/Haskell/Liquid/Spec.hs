@@ -37,17 +37,18 @@ import Language.Haskell.Liquid.Spec.WiredIns
 
 --------------------------------------------------------------------------------
 
-makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> Ghc GhcSpec
-makeGhcSpec cfg exports mod vs anns cbs = do
+makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> RTEnv -> Ghc GhcSpec
+makeGhcSpec cfg exports mod vs anns cbs rtEnv = do
   liftIO $ whenLoud $ putStrLn "extraction started..."
   wiredIns                        <- loadWiredIns
   (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns cbs
-  ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns exprParams inlines
+  ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns rtEnv exprParams inlines
   let freeSyms' = map (second (joinVar vs)) freeSyms
   return $ mempty { tySigs   = map (second dummyLoc) tySigs
                   , exports  = exports
                   , tcEmbeds = tcEmbeds
                   , freeSyms = freeSyms'
+                  , rtEnv    = tySyns
                   , config   = cfg
                   }
   where
