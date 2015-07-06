@@ -120,7 +120,7 @@ loadFromIface scope mod lqhiFile = do
 
 loadFromHsSource :: Config -> GhcSpec -> FilePath -> FilePath -> ModSummary -> Ghc GhcSpec
 loadFromHsSource cfg scope hsFile lqhiFile summary = do
-  ghcInfo <- getGhcInfo cfg hsFile summary
+  ghcInfo <- getGhcInfo cfg scope hsFile summary
   let ghcSpec  = spec ghcInfo
   let ghcSpec' = mappend scope ghcSpec
   let ghcInfo' = ghcInfo { spec = ghcSpec' }

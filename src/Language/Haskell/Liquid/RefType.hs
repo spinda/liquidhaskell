@@ -152,7 +152,7 @@ uTop r          = U r mempty mempty
 
 instance Monoid Config => Monoid GhcSpec where
   mempty =
-    SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty [] mempty mempty
+    SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty [] mempty mempty mempty
   mappend sp1 sp2 =
     SP { tySigs     = mappend (tySigs     sp1) (tySigs     sp2)
        , asmSigs    = mappend (asmSigs    sp1) (asmSigs    sp2)
@@ -176,6 +176,7 @@ instance Monoid Config => Monoid GhcSpec where
        , tyconEnv   = mappend (tyconEnv   sp1) (tyconEnv   sp2)
        , dicts      = mappend (dicts      sp1) (dicts      sp2)
        , exports    = unionNameSet (exports sp1) (exports sp2)
+       , rtEnv      = mappend (rtEnv      sp1) (rtEnv      sp2)
        }
 
 instance ( SubsTy tv (RType c tv ()) (RType c tv ())
@@ -699,6 +700,13 @@ instance PPrint (RTProp c tv r) => Show (RTProp c tv r) where
 instance PPrint REnv where
   pprint (REnv m)  = pprint m
 
+instance PPrint RTAlias where
+  pprint (RTA targs eargs body) =
+        parens (hsep $ map pprint targs)
+    <+> braces (hsep $ map pprint eargs)
+    <+> equals
+    <+> pprint body
+
 ------------------------------------------------------------------------------------------
 -- TODO: Rewrite subsTyvars with Traversable
 ------------------------------------------------------------------------------------------
@@ -977,18 +985,6 @@ shiftVV t@(RVar _ r) vv'
 shiftVV t _
   = t -- errorstar $ "shiftVV: cannot handle " ++ showpp t
 
-
-------------------------------------------------------------------------
----------------- Auxiliary Stuff Used Elsewhere ------------------------
-------------------------------------------------------------------------
-
--- MOVE TO TYPES
-instance (Show tv, Show ty) => Show (RTAlias tv ty) where
-  show (RTA n as xs t p _) =
-    printf "type %s %s %s = %s -- defined at %s" (symbolString n)
-      (L.intercalate " " (show <$> as))
-      (L.intercalate " " (show <$> xs))
-      (show t) (show p)
 
 ----------------------------------------------------------------
 ------------ From Old Fixpoint ---------------------------------
