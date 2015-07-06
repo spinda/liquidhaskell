@@ -152,7 +152,7 @@ uTop r          = U r mempty mempty
 
 instance Monoid Config => Monoid GhcSpec where
   mempty =
-    SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty [] mempty mempty mempty
+    SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty [] mempty mempty mempty mempty
   mappend sp1 sp2 =
     SP { tySigs     = mappend (tySigs     sp1) (tySigs     sp2)
        , asmSigs    = mappend (asmSigs    sp1) (asmSigs    sp2)
@@ -177,6 +177,7 @@ instance Monoid Config => Monoid GhcSpec where
        , dicts      = mappend (dicts      sp1) (dicts      sp2)
        , exports    = unionNameSet (exports sp1) (exports sp2)
        , rtEnv      = mappend (rtEnv      sp1) (rtEnv      sp2)
+       , tinlines   = mappend (tinlines   sp1) (tinlines   sp2)
        }
 
 instance ( SubsTy tv (RType c tv ()) (RType c tv ())
@@ -700,7 +701,7 @@ instance PPrint (RTProp c tv r) => Show (RTProp c tv r) where
 instance PPrint REnv where
   pprint (REnv m)  = pprint m
 
-instance PPrint RTAlias where
+instance (PPrint tv, PPrint ty) => PPrint (RTAlias tv ty) where
   pprint (RTA targs eargs body) =
         parens (hsep $ map pprint targs)
     <+> braces (hsep $ map pprint eargs)

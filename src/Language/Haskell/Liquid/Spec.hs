@@ -15,6 +15,7 @@ import HscTypes
 import NameSet
 import TysWiredIn
 import Var
+import VarEnv
 
 import Control.Arrow
 
@@ -37,13 +38,14 @@ import Language.Haskell.Liquid.Spec.WiredIns
 
 --------------------------------------------------------------------------------
 
-makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> RTEnv -> Ghc GhcSpec
-makeGhcSpec cfg exports mod vs anns cbs rtEnv = do
+makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> GhcSpec -> Ghc GhcSpec
+makeGhcSpec cfg exports mod vs anns cbs scope = do
   liftIO $ whenLoud $ putStrLn "extraction started..."
   wiredIns                        <- loadWiredIns
   (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns cbs
-  ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns rtEnv exprParams inlines
-  let freeSyms' = map (second (joinVar vs)) freeSyms
+  let inlines'                     = extendVarEnvList inlines $ tinlines scope
+  ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns (rtEnv scope) exprParams inlines'
+  let freeSyms'                    = map (second (joinVar vs)) freeSyms
   return $ mempty { tySigs   = map (second dummyLoc) tySigs
                   , exports  = exports
                   , tcEmbeds = tcEmbeds
