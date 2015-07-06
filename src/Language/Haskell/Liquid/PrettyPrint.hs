@@ -38,6 +38,7 @@ import Language.Haskell.Liquid.Types hiding (sort)
 import Language.Fixpoint.Names (dropModuleNames, propConName, hpropConName)
 import TypeRep          hiding (maybeParen, pprArrowChain)
 import Text.Parsec.Error (ParseError, errorMessages, showErrorMessages)
+import Module           (Module)
 import Var              (Var)
 import TyCon            (TyCon)
 import Control.Applicative ((<$>))
@@ -73,6 +74,9 @@ instance PPrint ParseError where
 
 -- instance PPrint LParseError where
 --   pprint (LPE _ msgs) = text "Parse Error: " <> vcat (map pprint msgs)
+
+instance PPrint Module where
+  pprint = pprDoc
 
 instance PPrint Var where
   pprint = pprDoc

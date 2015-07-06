@@ -376,6 +376,9 @@ kindArity _
 instance Hashable Name where
   hashWithSalt = uniqueHash
 
+instance Hashable Module where
+  hashWithSalt = uniqueHash
+
 instance Hashable Var where
   hashWithSalt = uniqueHash
 
