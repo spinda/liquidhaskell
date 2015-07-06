@@ -179,7 +179,6 @@ module Language.Haskell.Liquid.Types (
   , updKVProf     -- extend profile
 
   -- * Misc
-  , mapRTAVars
   , insertsSEnv
 
   -- * Strata
@@ -372,6 +371,7 @@ data GhcSpec = SP {
   , measures   :: [Measure SpecType DataCon]
   , tyconEnv   :: M.HashMap TyCon RTyCon
   , dicts      :: DEnv Var SpecType              -- ^ Dictionary Environment
+  , rtEnv      :: RTEnv                          -- ^ Type Synonym Environment
   }
 
 type LogicMap = M.HashMap Symbol LMap
@@ -892,21 +892,6 @@ instance Show DataDecl where
   show dd = printf "DataDecl: data = %s, tyvars = %s"
               (show $ tycName   dd)
               (show $ tycTyVars dd)
-
--- | Refinement Type Aliases
-
-data RTAlias tv ty
-  = RTA { rtName  :: Symbol
-        , rtTArgs :: [tv]
-        , rtVArgs :: [tv]
-        , rtBody  :: ty
-        , rtPos   :: SourcePos
-        , rtPosE  :: SourcePos
-        }
-
-mapRTAVars f rt = rt { rtTArgs = f <$> rtTArgs rt
-                     , rtVArgs = f <$> rtVArgs rt
-                     }
 
 ------------------------------------------------------------------------
 -- | Constructor and Destructors for RTypes ----------------------------
@@ -1641,7 +1626,13 @@ getModString = moduleNameString . getModName
 ----------- Refinement Type Aliases -------------------------------------------
 -------------------------------------------------------------------------------
 
-type RTEnv = M.HashMap Symbol (RTAlias RTyVar SpecType)
+type RTEnv = M.HashMap TyCon RTAlias
+
+data RTAlias
+  = RTA { rtTArgs :: [RTyVar]
+        , rtEArgs :: [Symbol]
+        , rtBody  :: SpecType
+        }
 
 cinfoError (Ci _ (Just e)) = e
 cinfoError (Ci l _)        = errOther $ text $ "Cinfo:" ++ showPpr l

@@ -70,18 +70,21 @@ newtype ReifyM a = ReifyM { unReifyM :: StateT ReifyState Ghc a }
 
 data ReifyState = RS { rs_freshInt   :: Integer
                      , rs_wiredIns   :: WiredIns
+                     , rs_rtEnv      :: RTEnv
                      , rs_exprParams :: NameEnv [Symbol]
                      , rs_inlines    :: VarEnv TInline
                      , rs_freeSyms   :: M.HashMap Symbol Var
                      }
 
 
-runReifyM :: ReifyM a -> WiredIns -> NameEnv [Symbol] -> VarEnv TInline -> Ghc (a, [(Symbol, Var)])
-runReifyM act wiredIns exprParams inlines = do
+runReifyM :: ReifyM a -> WiredIns -> RTEnv -> NameEnv [Symbol] -> VarEnv TInline -> Ghc (a, [(Symbol, Var)])
+runReifyM act wiredIns rtEnv exprParams inlines = do
   (x, s) <- runStateT (unReifyM act) initState
   return (x, M.toList $ rs_freeSyms s)
   where
-    initState = RS 0 wiredIns exprParams inlines mempty
+    initState   = RS 0 wiredIns rtEnv exprParams' inlines mempty
+    exprParams' = plusNameEnv exprParams $
+      mkNameEnv $ map (getName *** rtEArgs) $ M.toList rtEnv
 
 
 liftGhc :: Ghc a -> ReifyM a
@@ -95,6 +98,9 @@ mkFreshInt = ReifyM $ do
 
 getWiredIns :: ReifyM WiredIns
 getWiredIns = ReifyM $ gets rs_wiredIns
+
+lookupRTAlias :: TyCon -> ReifyM (Maybe RTAlias)
+lookupRTAlias tc = ReifyM $ gets (M.lookup tc . rs_rtEnv)
 
 lookupExprParams :: TyCon -> ReifyM [Symbol]
 lookupExprParams tc = ReifyM $ do
@@ -141,8 +147,8 @@ reifyRTy (TyConApp tc as) = go =<< getWiredIns
         strengthen <$> reifyRTy a <*> reifyRReft b p
       | tc == tc_ExprArgs wis, [a, es] <- as =
         reifyExprArgs a es
-      | Just (tenv, rhs, as') <- tcExpandTyCon_maybe tc as =
-        reifyRTy $ mkAppTys (substTy (mkTopTvSubst tenv) rhs) as'
+      | isTypeSynonymTyCon tc =
+        reifyTySynApp tc as
       | otherwise =
         rApp tc <$> mapM reifyRTy as <*> pure [] <*> pure mempty
 
@@ -157,6 +163,19 @@ reifyRTy ty@(LitTy _) =
   malformed "type" ty
 
 
+reifyTySynApp :: TyCon -> [Type] -> ReifyM SpecType
+reifyTySynApp tc as = do
+  rtAlias <- lookupRTAlias tc
+  case rtAlias of
+    Just (RTA targs _ body) -> do
+      as' <- mapM reifyRTy as
+      let ats = zipWith (\a t -> (a, toRSort t, t)) targs as'
+      return $ subsTyVars_meet ats body
+    Nothing ->
+      let Just (tenv, rhs, as') = tcExpandTyCon_maybe tc as
+      in  reifyRTy (mkAppTys (substTy (mkTopTvSubst tenv) rhs) as')
+
+-- TODO: Error out when no expression arguments are given and some are needed
 reifyExprArgs :: Type -> Type -> ReifyM SpecType
 reifyExprArgs a@(TyConApp tc _) es = do
   a'     <- reifyRTy a

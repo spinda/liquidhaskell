@@ -154,8 +154,8 @@ extractTySigs mod = do
   where
     ids = idsFromSource $ tm_typechecked_source mod
 
-extractTySyns :: TypecheckedModule -> ReifyM [RTAlias RTyVar SpecType]
-extractTySyns mod = mapM go tysyns
+extractTySyns :: TypecheckedModule -> ReifyM RTEnv
+extractTySyns mod = M.fromList <$> mapM go tysyns
   where
     things = modInfoTyThings $ tm_checked_module_info mod
     tycons = mapMaybe (\case { ATyCon tc -> Just tc; _ -> Nothing }) things
@@ -163,14 +163,10 @@ extractTySyns mod = mapM go tysyns
     go (tc, (tvs, rhs)) = do
       rhs' <- reifyRTy rhs
       evs  <- lookupExprParams tc
-      return $
-        RTA { rtName  = symbol tc
-            , rtTArgs = map rTyVar tvs
-            , rtVArgs = map symbolRTyVar evs
+      return $ (tc, ) $
+        RTA { rtTArgs = map rTyVar tvs
+            , rtEArgs = evs
             , rtBody  = rhs'
-            -- TODO: Extract type synonym position data
-            , rtPos   = dummyPos "TypeAlias"
-            , rtPosE  = dummyPos "TypeAlias"
             }
 
 --------------------------------------------------------------------------------

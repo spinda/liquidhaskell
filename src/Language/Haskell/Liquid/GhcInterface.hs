@@ -47,6 +47,7 @@ import Language.Fixpoint.Files
 import Language.Fixpoint.Types hiding (Result, Expr)
 
 import Language.Haskell.Liquid.Types
+import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.ANFTransform
 import Language.Haskell.Liquid.GhcMisc
@@ -58,8 +59,8 @@ import Language.Haskell.Liquid.CmdLine (withCabal, withPragmas)
 
 import qualified Language.Haskell.Liquid.Measure as Ms
 
-getGhcInfo :: Config -> FilePath -> ModSummary -> Ghc GhcInfo
-getGhcInfo cfg hsFile summary = do
+getGhcInfo :: Config -> GhcSpec -> FilePath -> ModSummary -> Ghc GhcInfo
+getGhcInfo cfg scope hsFile summary = do
   liftIO              $ cleanFiles hsFile
 
   parsed             <- parseModule summary
@@ -85,7 +86,7 @@ getGhcInfo cfg hsFile summary = do
   let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
 
   setContext [IIModule $ moduleName $ ms_mod summary]
-  spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds
+  spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds (rtEnv scope)
 
   let paths           = idirs cfg
   liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
@@ -238,6 +239,8 @@ instance PPrint GhcSpec where
               $$ (pprint $ tgtVars spec)
               $$ (text "******* Type Signatures *********************")
               $$ (pprintLongList $ tySigs spec)
+              $$ (text "******* Type Synonyms ***********************")
+              $$ (pprintLongList $ M.toList $ rtEnv spec)
               $$ (text "******* FTycon Embeds ***********************")
               $$ (pprintLongList $ map (second fTyconSymbol) $ M.toList $ tcEmbeds spec)
               $$ (text "******* Assumed Type Signatures *************")
