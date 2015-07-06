@@ -87,6 +87,8 @@ instance Iface GhcSpec IfaceSpec where
        , ifaceTcEmbeds   = first toIfaceTyCon <$> M.toList tcEmbeds
        , ifaceQualifiers = qualifiers
        , ifaceTyConEnv   = ofTyConEnv <$> M.toList tyconEnv
+       , ifaceRTEnv      = ofRTAlias <$> M.toList rtEnv
+       , ifaceTInlines   = first getOccName <$> filter isExported tinlines
        , ifaceExports    = nameSetElems exports
        }
     where
@@ -94,6 +96,7 @@ instance Iface GhcSpec IfaceSpec where
       ofTySig    = getOccName   *** fmap toIface
       ofIAlias   = fmap toIface *** fmap toIface
       ofTyConEnv = toIfaceTyCon *** toIface
+      ofRTAlias  = toIfaceTyCon *** toIface
 
   fromIface (IS {..}) = do
     tySigs     <- mapM ofTySig ifaceTySigs
@@ -105,6 +108,8 @@ instance Iface GhcSpec IfaceSpec where
     freeSyms   <- mapM (secondM lookupIfaceVar) ifaceFreeSyms
     tcEmbeds   <- M.fromList <$> mapM (firstM tcIfaceTyCon) ifaceTcEmbeds
     tyconEnv   <- M.fromList <$> mapM ofTyConEnv ifaceTyConEnv
+    rtEnv      <- M.fromList <$> mapM ofRTAlias ifaceRTEnv
+    tinlines   <- mapM (firstM lookupIfaceVar) ifaceTInlines
     return $ mempty
       { tySigs     = tySigs
       , asmSigs    = asmSigs
@@ -116,12 +121,15 @@ instance Iface GhcSpec IfaceSpec where
       , tcEmbeds   = tcEmbeds
       , qualifiers = ifaceQualifiers
       , tyconEnv   = tyconEnv
+      , rtEnv      = rtEnv
+      , tinlines   = tinlines
       , exports    = mkNameSet ifaceExports
       }
     where
       ofTySig    (v, t) = (,) <$> lookupIfaceVar v     <*> traverse fromIface t
       ofIAlias   (x, y) = (,) <$> traverse fromIface x <*> traverse fromIface y
       ofTyConEnv (t, i) = (,) <$> tcIfaceTyCon t       <*> fromIface i
+      ofRTAlias  (t, a) = (,) <$> tcIfaceTyCon t       <*> fromIface a
 
 instance Iface (RRType r) (IRType r) where
   toIface (RVar tv r)       = RVar (toIface tv) r
@@ -207,6 +215,12 @@ instance Iface s i => Iface (HSeg s) (HSeg i) where
 
   fromIface (HBind a v) = HBind a <$> fromIface v
   fromIface (HVar pv)   = return $ HVar pv
+
+instance Iface (RTAlias RTyVar SpecType) (RTAlias IfLclName IfaceType) where
+  toIface (RTA ts es b) =
+    RTA (toIface <$> ts) es (toIface b)
+  fromIface (RTA ts es b) =
+    RTA <$> mapM fromIface ts <*> pure es <*> fromIface b
 
 --------------------------------------------------------------------------------
 -- Utiliy Functions ------------------------------------------------------------

@@ -372,6 +372,7 @@ data GhcSpec = SP {
   , tyconEnv   :: M.HashMap TyCon RTyCon
   , dicts      :: DEnv Var SpecType              -- ^ Dictionary Environment
   , rtEnv      :: RTEnv                          -- ^ Type Synonym Environment
+  , tinlines   :: ![(Var, TInline)]              -- ^ Inline Environment
   }
 
 type LogicMap = M.HashMap Symbol LMap
@@ -1623,12 +1624,12 @@ getModString = moduleNameString . getModName
 ----------- Refinement Type Aliases -------------------------------------------
 -------------------------------------------------------------------------------
 
-type RTEnv = M.HashMap TyCon RTAlias
+type RTEnv = M.HashMap TyCon (RTAlias RTyVar SpecType)
 
-data RTAlias
-  = RTA { rtTArgs :: [RTyVar]
+data RTAlias tv ty
+  = RTA { rtTArgs :: [tv]
         , rtEArgs :: [Symbol]
-        , rtBody  :: SpecType
+        , rtBody  :: ty
         }
 
 cinfoError (Ci _ (Just e)) = e

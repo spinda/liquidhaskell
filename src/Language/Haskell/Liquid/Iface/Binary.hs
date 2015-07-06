@@ -6,6 +6,7 @@
 module Language.Haskell.Liquid.Iface.Binary () where
 
 import Binary
+import IfaceType (IfLclName)
 
 import qualified Data.Text as T
 
@@ -34,9 +35,13 @@ instance Binary IfaceSpec where
     put_ bh ifaceTcEmbeds
     put_ bh ifaceQualifiers
     put_ bh ifaceTyConEnv
+    put_ bh ifaceRTEnv
+    put_ bh ifaceTInlines
     put_ bh ifaceExports
   get bh = do
     IS <$> get bh
+       <*> get bh
+       <*> get bh
        <*> get bh
        <*> get bh
        <*> get bh
@@ -397,4 +402,17 @@ instance Binary Qualifier where
     put_ bh q_body
     put_ bh q_pos
   get bh = Q <$> get bh <*> get bh <*> get bh <*> get bh
+
+instance Binary (RTAlias IfLclName IfaceType) where
+  put_ bh (RTA {..}) = do
+    put_ bh rtTArgs
+    put_ bh rtEArgs
+    put_ bh rtBody
+  get bh = RTA <$> get bh <*> get bh <*> get bh
+
+instance Binary TInline where
+  put_ bh (TI {..}) = do
+    put_ bh tiargs
+    put_ bh tibody
+  get bh = TI <$> get bh <*> get bh
 

@@ -99,7 +99,7 @@ mkFreshInt = ReifyM $ do
 getWiredIns :: ReifyM WiredIns
 getWiredIns = ReifyM $ gets rs_wiredIns
 
-lookupRTAlias :: TyCon -> ReifyM (Maybe RTAlias)
+lookupRTAlias :: TyCon -> ReifyM (Maybe (RTAlias RTyVar SpecType))
 lookupRTAlias tc = ReifyM $ gets (M.lookup tc . rs_rtEnv)
 
 lookupExprParams :: TyCon -> ReifyM [Symbol]

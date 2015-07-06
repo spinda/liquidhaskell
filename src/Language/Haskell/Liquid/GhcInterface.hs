@@ -86,7 +86,7 @@ getGhcInfo cfg scope hsFile summary = do
   let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
 
   setContext [IIModule $ moduleName $ ms_mod summary]
-  spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds (rtEnv scope)
+  spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds scope
 
   let paths           = idirs cfg
   liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)

@@ -30,6 +30,8 @@ data IfaceSpec = IS { ifaceTySigs     :: ![(OccName, Located IfaceType)]
                     , ifaceTcEmbeds   :: ![(IfaceTyCon, FTycon)]
                     , ifaceQualifiers :: ![Qualifier]
                     , ifaceTyConEnv   :: ![(IfaceTyCon, ITyCon)]
+                    , ifaceRTEnv      :: ![(IfaceTyCon, RTAlias IfLclName IfaceType)]
+                    , ifaceTInlines   :: ![(OccName, TInline)]
                     , ifaceExports    :: ![Name]
                     }
 
