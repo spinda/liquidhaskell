@@ -23,8 +23,11 @@ import IfaceEnv
 import IfaceType hiding (IfaceType)
 import IOEnv
 import Kind
+import Module
 import NameSet
 import OccName
+import PackageConfig
+import Packages
 import TcIface
 import TcRnDriver
 import TcRnTypes
@@ -33,12 +36,14 @@ import UniqFM
 import Var
 
 import Control.Arrow
+import Control.Monad
 
 import Data.Data (Data)
 import Data.IORef
 import Data.Maybe
 import Data.Monoid
 import Data.Typeable (Typeable)
+import Data.Version
 
 import qualified Data.HashMap.Strict as M
 
@@ -65,20 +70,30 @@ import Language.Haskell.Liquid.Iface.Types
 --------------------------------------------------------------------------------
 
 findIfaceSpec :: GhcMonad m => Module -> m (Maybe FilePath)
-findIfaceSpec = findIfaceWithHiFile
+findIfaceSpec mod = do
+  fileGuesses <- mapMaybeM ($ mod) [findIfaceWithHiFile, findIfaceInStdLib]
+  liftIO $ listToMaybe <$> filterM doesFileExist fileGuesses
 
 findIfaceWithHiFile :: GhcMonad m => Module -> m (Maybe FilePath)
 findIfaceWithHiFile mod = do
   hscEnv <- getSession
   result <- liftIO $ findExactModule hscEnv mod
-  case result of
-    Found loc _ -> liftIO $ do
-      let lqhiFile = replaceExtension (ml_hi_file loc) "lqhi"
-      lqhiExists <- doesFileExist lqhiFile
-      return $ if lqhiExists
-        then Just lqhiFile
-        else Nothing
-    _ -> return Nothing
+  return $ case result of
+    Found loc _ -> Just $ replaceExtension (ml_hi_file loc) "lqhi"
+    _           -> Nothing
+
+findIfaceInStdLib :: GhcMonad m => Module -> m (Maybe FilePath)
+findIfaceInStdLib mod = do
+  stdLibDir <- liftIO getStdLibDir
+  result    <- (`lookupPackage` package) <$> getSessionDynFlags
+  return $ case result of
+    Just cfg ->
+      let pkgDir = packageNameString cfg ++ '-' : showVersion (packageVersion cfg)
+      in  Just $ stdLibDir </> pkgDir </> lqhiFile
+    Nothing -> Nothing
+  where
+    lqhiFile = moduleNameSlashes (moduleName mod) <.> "lqhi"
+    package  = modulePackageKey mod
 
 --------------------------------------------------------------------------------
 -- Read/Write Liquid Interface Files -------------------------------------------

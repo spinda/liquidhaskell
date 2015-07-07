@@ -72,6 +72,7 @@ ghc = "ghc-7.10"
 #endif
 
 getIncludeDir      = dropFileName <$> getDataFileName ("include" </> "Prelude.spec")
+getStdLibDir       = (</> "std") <$> getDataDir
 getCssPath         = getDataFileName $ "syntax" </> "liquid.css"
 getCoreToLogicPath = fmap (</> "CoreToLogic.lg") getIncludeDir
 
