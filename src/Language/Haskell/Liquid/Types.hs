@@ -262,6 +262,7 @@ data Config = Config {
   , fullcheck      :: Bool       -- ^ check all binders (overrides diffcheck)
   , native         :: Bool       -- ^ use native (Haskell) fixpoint constraint solver
   , binders        :: [String]   -- ^ set of binders to check
+  , noWriteIface   :: Bool       -- ^ skip producing a .lqhi file for verified modules
   , noCheckUnknown :: Bool       -- ^ whether to complain about specifications for unexported and unused values
   , notermination  :: Bool       -- ^ disable termination check
   , nowarnings     :: Bool       -- ^ disable warnings output (only show errors)

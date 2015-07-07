@@ -1,5 +1,11 @@
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
+
 module Language.Haskell.Liquid.Iface.Types (
-    IfaceSpec(..)
+    IfaceData(..)
+  , emptyIfaceData
+  , IfaceSpec(..)
   , IRType
   , ISort
   , IPVar
@@ -7,7 +13,9 @@ module Language.Haskell.Liquid.Iface.Types (
   , ITyCon(..)
   ) where
 
+import Fingerprint
 import IfaceType hiding (IfaceType)
+import Module
 import Name
 import OccName
 import TyCon
@@ -19,6 +27,15 @@ import Language.Haskell.Liquid.Types
 --------------------------------------------------------------------------------
 -- Types for LiquidHaskell Interface Files -------------------------------------
 --------------------------------------------------------------------------------
+
+data IfaceData spec = ID { ifaceModule       :: !Module
+                         , ifaceFingerprint  :: !Fingerprint
+                         , ifaceDependencies :: ![(Module, Fingerprint)]
+                         , ifaceSpec         :: !spec
+                         } deriving (Foldable, Functor, Traversable)
+
+emptyIfaceData :: Monoid spec => Module -> IfaceData spec
+emptyIfaceData mod = ID mod fingerprint0 [] mempty
 
 data IfaceSpec = IS { ifaceTySigs     :: ![(OccName, Located IfaceType)]
                     , ifaceAsmSigs    :: ![(OccName, Located IfaceType)]
