@@ -127,6 +127,11 @@ config = cmdArgsMode $ Config {
  , smtsolver
     = def &= help "Name of SMT-Solver"
 
+ , noWriteIface
+    = def &= explicit
+          &= name "no-write-iface"
+          &= help "Skip producing a .lqhi file for verified modules"
+
  , noCheckUnknown
     = def &= explicit
           &= name "no-check-unknown"
@@ -290,7 +295,7 @@ fixCabalDirs' cfg i = cfg { idirs      = nub $ idirs cfg ++ sourceDirs i ++ buil
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def def
+  mempty        = Config def def def def def def def def def def def def def def def def def 2 def def def def def def
   mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
                          , idirs          = sortNub $ idirs c1   ++     idirs          c2
                          , fullcheck      = fullcheck c1         ||     fullcheck      c2
@@ -298,6 +303,7 @@ instance Monoid Config where
                          , diffcheck      = diffcheck c1         ||     diffcheck      c2
                          , native         = native    c1         ||     native         c2
                          , binders        = sortNub $ binders c1 ++     binders        c2
+                         , noWriteIface   = noWriteIface   c1    ||     noWriteIface   c2
                          , noCheckUnknown = noCheckUnknown c1    ||     noCheckUnknown c2
                          , notermination  = notermination  c1    ||     notermination  c2
                          , nowarnings     = nowarnings     c1    ||     nowarnings     c2

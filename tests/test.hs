@@ -144,7 +144,7 @@ knownToFail Z3   = [ "tests/pos/linspace.hs" ]
 testCmd :: FilePath -> FilePath -> FilePath -> SmtSolver -> LiquidOpts -> String
 ---------------------------------------------------------------------------
 testCmd liquid dir file smt (LO opts)
-  = printf "cd %s && %s --verbose --smtsolver %s %s %s" dir liquid (show smt) file opts
+  = printf "cd %s && %s --verbose --no-write-iface --smtsolver %s %s %s" dir liquid (show smt) file opts
 
 
 textIgnored = [ "Data/Text/Axioms.hs"
