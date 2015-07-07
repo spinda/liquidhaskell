@@ -6,9 +6,18 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Language.Haskell.Liquid.Iface (
-    findIfaceSpec
-  , writeIfaceSpec
-  , readIfaceSpec
+    ifacePathWithHi
+  , findPkgIface
+
+  , validateIfaceData
+
+  , writeIfaceData
+  , readIfaceData
+  , loadIfaceData
+
+  , IfaceData(..)
+  , emptyIfaceData
+  , IfaceSpec
   ) where
 
 import GHC hiding (L, Located)
@@ -17,6 +26,7 @@ import BinIface
 import Exception
 import FastMutInt
 import Finder
+import Fingerprint
 import GhcMonad
 import HscTypes
 import IfaceEnv
@@ -69,21 +79,25 @@ import Language.Haskell.Liquid.Iface.Types
 -- Liquid Interface File Locations ---------------------------------------------
 --------------------------------------------------------------------------------
 
-findIfaceSpec :: GhcMonad m => Module -> m (Maybe FilePath)
-findIfaceSpec mod = do
-  fileGuesses <- mapMaybeM ($ mod) [findIfaceWithHiFile, findIfaceInStdLib]
+ifacePathWithHi :: ModLocation -> FilePath
+ifacePathWithHi = (`replaceExtension` "lqhi") . ml_hi_file
+
+
+findPkgIface :: GhcMonad m => Module -> m (Maybe FilePath)
+findPkgIface mod = do
+  fileGuesses <- mapMaybeM ($ mod) [findPkgIfaceWithHiFile, findPkgIfaceInStdLib]
   liftIO $ listToMaybe <$> filterM doesFileExist fileGuesses
 
-findIfaceWithHiFile :: GhcMonad m => Module -> m (Maybe FilePath)
-findIfaceWithHiFile mod = do
+findPkgIfaceWithHiFile :: GhcMonad m => Module -> m (Maybe FilePath)
+findPkgIfaceWithHiFile mod = do
   hscEnv <- getSession
   result <- liftIO $ findExactModule hscEnv mod
   return $ case result of
-    Found loc _ -> Just $ replaceExtension (ml_hi_file loc) "lqhi"
+    Found loc _ -> Just $ ifacePathWithHi loc
     _           -> Nothing
 
-findIfaceInStdLib :: GhcMonad m => Module -> m (Maybe FilePath)
-findIfaceInStdLib mod = do
+findPkgIfaceInStdLib :: GhcMonad m => Module -> m (Maybe FilePath)
+findPkgIfaceInStdLib mod = do
   stdLibDir <- liftIO getStdLibDir
   result    <- (`lookupPackage` package) <$> getSessionDynFlags
   return $ case result of
@@ -96,16 +110,32 @@ findIfaceInStdLib mod = do
     package  = modulePackageKey mod
 
 --------------------------------------------------------------------------------
+-- Iface Validation ------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+validateIfaceData :: Module
+                  -> Fingerprint
+                  -> [(Module, Fingerprint)]
+                  -> IfaceData spec
+                  -> Bool
+validateIfaceData mod fingerprint dependencies (ID {..}) =
+     ifaceModule       == mod
+  && ifaceFingerprint  == fingerprint
+  && ifaceDependencies == dependencies
+
+--------------------------------------------------------------------------------
 -- Read/Write Liquid Interface Files -------------------------------------------
 --------------------------------------------------------------------------------
 
-writeIfaceSpec :: FilePath -> GhcSpec -> IO ()
-writeIfaceSpec path = writeIfaceFile path . toIface 
+writeIfaceData :: FilePath -> IfaceData GhcSpec -> IO ()
+writeIfaceData path = writeIfaceFile path . toIface 
 
-readIfaceSpec :: GhcMonad m => FilePath -> Module -> m GhcSpec
-readIfaceSpec path mod = do
-  spec <- readIfaceFile path
-  runTcM $ initIfaceTc (emptyModIface mod) $ \_ -> fromIface spec
+readIfaceData :: GhcMonad m => FilePath -> m (IfaceData IfaceSpec)
+readIfaceData = readIfaceFile
+
+loadIfaceData :: GhcMonad m => IfaceData IfaceSpec -> m (IfaceData GhcSpec)
+loadIfaceData dat =
+  runTcM $ initIfaceTc (emptyModIface $ ifaceModule dat) $ \_ -> fromIface dat
 
 --------------------------------------------------------------------------------
 -- Iface Type Conversion -------------------------------------------------------
@@ -114,6 +144,10 @@ readIfaceSpec path mod = do
 class Iface spec iface | spec -> iface where
   toIface   :: spec  -> iface 
   fromIface :: iface -> IfL spec
+
+instance Iface (IfaceData GhcSpec) (IfaceData IfaceSpec) where
+  toIface   = fmap toIface
+  fromIface = traverse fromIface
 
 instance Iface GhcSpec IfaceSpec where
   toIface (SP {..}) =

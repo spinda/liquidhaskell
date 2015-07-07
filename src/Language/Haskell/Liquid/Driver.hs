@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -13,20 +14,25 @@ import CoreSyn
 import DriverPhases (Phase(..))
 import DriverPipeline (compileFile)
 import DynFlags
+import Finder
+import Fingerprint
 import GhcMonad
 import HscTypes
+import Module
 import MonadUtils
 import Panic
 import Var
 
+import Control.Arrow
 import Control.DeepSeq
 import Control.Monad
+import Control.Monad.State
 
+import Data.Either
 import Data.List
 import Data.Maybe
 
 import qualified Data.HashMap.Strict as M
-import qualified Data.HashSet        as S
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 import System.Console.CmdArgs.Default
@@ -50,6 +56,7 @@ import Language.Haskell.Liquid.Constraint.ToFixpoint
 import Language.Haskell.Liquid.Constraint.Types
 import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.GhcInterface
+import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Iface
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.RefType
@@ -70,10 +77,11 @@ processModules cfg0 targets = runGhc (Just libdir) $ do
   updateDynFlags cfg
   compileCFiles cfg
 
+  load LoadAllTargets
+
   summaries          <- depanal [] True
-  scope              <- prepopScopeEnv summaries
-  liftIO $ putStrLn $ render $ pprintLongList $ M.toList scope
-  foldM_ (processModule cfg) mempty summaries
+
+  evalStateT (mapM_ (processModule cfg) summaries) mempty
 
 updateDynFlags :: Config -> Ghc ()
 updateDynFlags cfg = do
@@ -113,76 +121,114 @@ compileCFiles cfg = do
 
 --------------------------------------------------------------------------------
 
-type ScopeEnv = M.HashMap Module GhcSpec
+type ProcessM = StateT (M.HashMap Module (IfaceData GhcSpec)) Ghc
 
-prepopScopeEnv :: [ModSummary] -> Ghc ScopeEnv
-prepopScopeEnv summaries = do
-  pkgImports <- S.toList <$> getAllPkgImports summaries
-  pkgIfaces  <- mapM findIfaceSpec pkgImports
-  M.fromList <$> zipWithM tryLoadIface pkgImports pkgIfaces
+processModule :: Config -> ModSummary -> ProcessM ()
+processModule cfg summary@(ModSummary { ms_mod = mod }) = do
+  liftIO $ putStrLn $ "== " ++ showPpr mod ++ " =="
+  --lift $ load $ LoadDependenciesOf $ moduleName mod
+
+  (pkgImports, homeImports) <- lift $ getAllImports summary
+  externData                <- assembleExternData pkgImports homeImports
+  let extern                 = mconcat $ map ifaceSpec externData
+
+  liftIO $ whenLoud $ putStrLn $
+    "Dependencies: " ++ render (pprintLongList $ map ifaceModule externData)
+
+  let hsFile   = fromJust $ ml_hs_file $ ms_location summary
+  let lqhiFile = ifacePathWithHi $ ms_location summary
+
+  fingerprint      <- liftIO $ getFileHash hsFile
+  let dependencies  = map (ifaceModule &&& ifaceFingerprint) externData
+
+  let ifExists True = do
+        ifaceData <- readIfaceData lqhiFile
+        if validateIfaceData mod fingerprint dependencies ifaceData
+           then do --load $ LoadUpTo $ moduleName mod
+                   loadIfaceData ifaceData
+           else ifExists False
+
+      ifExists False = do
+        ghcInfo <- getGhcInfo cfg extern hsFile summary
+
+        let ghcSpec   = spec ghcInfo
+        let ghcSpec'  = mappend extern ghcSpec
+        let ghcInfo'  = ghcInfo { spec = ghcSpec' }
+        let ifaceData = ID mod fingerprint dependencies ghcSpec
+
+        liftIO $ whenLoud $ putStrLn $ showpp ghcSpec'
+
+        out <- liftIO $ liquidOne hsFile ghcInfo'
+        case o_result out of
+          Safe | noWriteIface cfg -> return ifaceData
+               | otherwise        -> ifaceData <$ liftIO (writeIfaceData lqhiFile ifaceData)
+          Crash        _ err      -> panic      $ "LiquidHaskell crash: "         ++ err
+          Unsafe       _          -> pgmError   $ "LiquidHaskell reported UNSAFE"
+          UnknownError   err      -> panic      $ "LiquidHaskell unknown error: " ++ err
+
+  ifaceData <- lift $ ifExists =<< liftIO (doesFileExist lqhiFile)
+  modify $ M.insert mod ifaceData
+
+assembleExternData :: [Module] -> [Module] -> ProcessM [IfaceData GhcSpec]
+assembleExternData pkgImports homeImports = do
+  (pkgUncached, pkgCached ) <- partitionEithers <$> mapM tryLoadCached pkgImports
+  ([], homeCached)          <- partitionEithers <$> mapM tryLoadCached homeImports
+  pkgLoaded                 <- lift $ mapM tryLoadFromFile pkgUncached
+  return $ sortBy ifaceDataCmp (pkgLoaded ++ pkgCached ++ homeCached)
   where
-    tryLoadIface mod =
-      fmap (mod, ) . maybe (return mempty) (`readIfaceSpec` mod)
-
-
-getAllPkgImports :: [ModSummary] -> Ghc (S.HashSet Module)
-getAllPkgImports = fmap S.unions . mapM getPkgImports
-
-getPkgImports :: ModSummary -> Ghc (S.HashSet Module)
-getPkgImports summary =
-  S.union <$> getPkgDeclImports summary <*> getPkgUsageImports (ms_mod summary)
-
-getPkgDeclImports :: ModSummary -> Ghc (S.HashSet Module)
-getPkgDeclImports summary = do
-  homePkg <- thisPackage <$> getSessionDynFlags
-  fmap (S.fromList . filter (isExternal homePkg)) $ mapM ofDecl $ ms_textual_imps summary
-  where
-    ofDecl (unLoc -> decl) =
-      findModule (unLoc $ ideclName decl) (ideclPkgQual decl)
-    isExternal homePkg =
-      (homePkg /=) . modulePackageKey
-
-getPkgUsageImports :: Module -> Ghc (S.HashSet Module)
-getPkgUsageImports mod = do
-  info <- getModuleInfo mod
-  case info of
-    Just (modInfoIface -> Just iface) ->
-      return $ S.fromList $ mapMaybe ofUsage $ mi_usages iface
-    _ -> return mempty
-    where
-      ofUsage (UsagePackageModule { usg_mod = usedMod }) = Just usedMod
-      ofUsage _ = Nothing
+    ifaceDataCmp x y = stableModuleCmp (ifaceModule x) (ifaceModule y)
+    tryLoadCached mod = do
+      cached <- gets $ M.lookup mod
+      return $ case cached of
+        Nothing        -> Left mod
+        Just ifaceData -> Right ifaceData
+    tryLoadFromFile mod = do
+      maybePath <- findPkgIface mod
+      case maybePath of
+        Nothing       -> return $ emptyIfaceData mod
+        Just lqhiFile -> loadIfaceData =<< readIfaceData lqhiFile
 
 --------------------------------------------------------------------------------
 
-processModule :: Config -> GhcSpec -> ModSummary -> Ghc GhcSpec
-processModule cfg scope summary = do
-  lqhiExists <- liftIO $ doesFileExist lqhiFile
-  if lqhiExists
-     then loadFromIface scope (ms_mod summary) lqhiFile
-     else loadFromHsSource cfg scope hsFile lqhiFile summary
+getAllImports :: ModSummary -> Ghc ([Module], [Module])
+getAllImports summary = do
+  (declPkgImps, declHomeImps)   <- getDeclImports summary
+  (usagePkgImps, usageHomeImps) <- getUsageImports $ ms_mod summary
+  return ( nub $ declPkgImps ++ usagePkgImps
+         , nub $ declHomeImps ++ usageHomeImps
+         )
+
+getDeclImports :: ModSummary -> Ghc ([Module], [Module])
+getDeclImports summary = do
+  partitionEithers <$> mapM ofDecl (ms_textual_imps summary)
   where
-    hsFile    = fromJust $ ml_hs_file $ ms_location summary
-    liquidDir = tempDirectory hsFile
-    lqhiFile  = liquidDir </> replaceExtension (takeFileName hsFile) "lqhi"
+    ofDecl (unLoc -> decl) = do
+      mod  <- findModule (unLoc $ ideclName decl) (ideclPkgQual decl)
+      home <- isHomeModule mod
+      return $ if home then Right mod else Left mod
+    isHomeModule mod = do
+      hscEnv <- getSession
+      result <- liftIO $ findHomeModule hscEnv $ moduleName mod
+      return $ case result of
+        Found         _ _ -> True
+        FoundMultiple _   -> True
+        _                 -> False
 
-loadFromIface :: GhcSpec -> Module -> FilePath -> Ghc GhcSpec
-loadFromIface scope mod lqhiFile = do
-  load $ LoadUpTo (moduleName mod)
-  mappend scope <$> readIfaceSpec lqhiFile mod
-
-loadFromHsSource :: Config -> GhcSpec -> FilePath -> FilePath -> ModSummary -> Ghc GhcSpec
-loadFromHsSource cfg scope hsFile lqhiFile summary = do
-  ghcInfo <- getGhcInfo cfg scope hsFile summary
-  let ghcSpec  = spec ghcInfo
-  let ghcSpec' = mappend scope ghcSpec
-  let ghcInfo' = ghcInfo { spec = ghcSpec' }
-  out <- liftIO $ liquidOne hsFile ghcInfo'
-  case o_result out of
-    Safe                -> ghcSpec' <$ liftIO (writeIfaceSpec lqhiFile ghcSpec)
-    Crash        _ err  -> panic     $ "LiquidHaskell crash: "         ++ err
-    Unsafe       _      -> pgmError  $ "LiquidHaskell reported UNSAFE"
-    UnknownError   err  -> panic     $ "LiquidHaskell unknown error: " ++ err
+getUsageImports :: Module -> Ghc ([Module], [Module])
+getUsageImports mod = do
+  homePkg <- thisPackage <$> getSessionDynFlags
+  info    <- getModuleInfo mod
+  return $ case info of
+    Just (modInfoIface -> Just iface) ->
+      partitionEithers $ mapMaybe (ofUsage homePkg) $ mi_usages iface
+    _ -> ([], [])
+  where
+    ofUsage _ (UsagePackageModule { usg_mod = usedMod }) =
+      Just $ Left usedMod
+    ofUsage homePkg (UsageHomeModule { usg_mod_name = usedModName }) =
+      Just $ Right $ mkModule homePkg usedModName
+    ofUsage _ (UsageFile {}) =
+      Nothing
 
 --------------------------------------------------------------------------------
 
