@@ -33,6 +33,8 @@ data-files: include/*.hquals
           , include/Language/Haskell/Liquid/*.pred
           , include/System/*.spec
           , syntax/liquid.css
+          , std/base-4.8.0.0/*.lqhi
+          , std/base-4.8.0.0/GHC/*.lqhi
 
 extra-source-files: tests/pos/*.hs
                   , tests/neg/*.hs

@@ -64,8 +64,6 @@ getGhcInfo cfg scope hsFile summary = do
   liftIO              $ cleanFiles hsFile
 
   parsed             <- parseModule summary
-  typecheckModule parsed
-
   let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
   typechecked        <- typecheckModule $ ignoreInline parsed'
   desugared          <- desugarModule typechecked

@@ -11,6 +11,7 @@ import GHC
 import GHC.Paths
 
 import CoreSyn
+import Digraph
 import DriverPhases (Phase(..))
 import DriverPipeline (compileFile)
 import DynFlags
@@ -79,7 +80,8 @@ processModules cfg0 targets = runGhc (Just libdir) $ do
 
   load LoadAllTargets
 
-  summaries          <- depanal [] True
+  modGraph           <- depanal [] True
+  let summaries       = flattenSCCs $ topSortModuleGraph False modGraph Nothing
 
   evalStateT (mapM_ (processModule cfg) summaries) mempty
 
@@ -126,7 +128,6 @@ type ProcessM = StateT (M.HashMap Module (IfaceData GhcSpec)) Ghc
 processModule :: Config -> ModSummary -> ProcessM ()
 processModule cfg summary@(ModSummary { ms_mod = mod }) = do
   liftIO $ putStrLn $ "== " ++ showPpr mod ++ " =="
-  --lift $ load $ LoadDependenciesOf $ moduleName mod
 
   (pkgImports, homeImports) <- lift $ getAllImports summary
   externData                <- assembleExternData pkgImports homeImports
@@ -141,20 +142,25 @@ processModule cfg summary@(ModSummary { ms_mod = mod }) = do
   fingerprint      <- liftIO $ getFileHash hsFile
   let dependencies  = map (ifaceModule &&& ifaceFingerprint) externData
 
+  ghcIface    <- lift $ (fromJust . modInfoIface . fromJust) <$> getModuleInfo mod
+  let ifaceMod = fromMaybe mod $ mi_sig_of ghcIface
+
   let ifExists True = do
         ifaceData <- readIfaceData lqhiFile
-        if validateIfaceData mod fingerprint dependencies ifaceData
-           then do --load $ LoadUpTo $ moduleName mod
-                   loadIfaceData ifaceData
+        if validateIfaceData ifaceMod fingerprint dependencies ifaceData
+           then loadIfaceData ifaceData
            else ifExists False
 
       ifExists False = do
-        ghcInfo <- getGhcInfo cfg extern hsFile summary
+        ghcInfo  <- getGhcInfo cfg extern hsFile summary
 
         let ghcSpec   = spec ghcInfo
         let ghcSpec'  = mappend extern ghcSpec
         let ghcInfo'  = ghcInfo { spec = ghcSpec' }
-        let ifaceData = ID mod fingerprint dependencies ghcSpec
+        -- TODO: Include re-exported things in saved spec
+        let ifaceData = ID ifaceMod fingerprint dependencies $ ghcSpec
+                        { tcEmbeds = mappend (tcEmbeds ghcSpec') (tcEmbeds ghcSpec)
+                        }
 
         out <- liftIO $ liquidOne hsFile ghcInfo'
         case o_result out of
