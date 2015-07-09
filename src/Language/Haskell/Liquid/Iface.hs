@@ -38,6 +38,7 @@ import NameSet
 import OccName
 import PackageConfig
 import Packages
+import PrelNames
 import TcIface
 import TcRnDriver
 import TcRnTypes
@@ -89,12 +90,14 @@ findPkgIface mod = do
   liftIO $ listToMaybe <$> filterM doesFileExist fileGuesses
 
 findPkgIfaceWithHiFile :: GhcMonad m => Module -> m (Maybe FilePath)
-findPkgIfaceWithHiFile mod = do
-  hscEnv <- getSession
-  result <- liftIO $ findExactModule hscEnv mod
-  return $ case result of
-    Found loc _ -> Just $ ifacePathWithHi loc
-    _           -> Nothing
+findPkgIfaceWithHiFile mod
+  | mod == gHC_PRIM = return Nothing
+  | otherwise = do
+    hscEnv <- getSession
+    result <- liftIO $ findExactModule hscEnv mod
+    return $ case result of
+      Found loc _ -> Just $ ifacePathWithHi loc
+      _           -> Nothing
 
 findPkgIfaceInStdLib :: GhcMonad m => Module -> m (Maybe FilePath)
 findPkgIfaceInStdLib mod = do
