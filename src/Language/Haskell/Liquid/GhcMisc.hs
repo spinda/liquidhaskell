@@ -460,6 +460,10 @@ tyConTyVarsDef c | TC.isPromotedTyCon   c = error ("TyVars on " ++ show c) -- ty
 tyConTyVarsDef c | TC.isPromotedDataCon c = error ("TyVars on " ++ show c) -- DC.dataConUnivTyVars $ TC.datacon c
 tyConTyVarsDef c = TC.tyConTyVars c 
 
+tyThingId_maybe :: TyThing -> Maybe Id
+tyThingId_maybe (AnId id) = Just id
+tyThingId_maybe _         = Nothing
+
 
 
 ----------------------------------------------------------------------
