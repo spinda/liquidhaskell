@@ -17,7 +17,7 @@ import Fingerprint
 import IfaceType hiding (IfaceType)
 import Module
 import Name
-import OccName
+import Name
 import TyCon
 
 import Language.Fixpoint.Types
@@ -37,18 +37,18 @@ data IfaceData spec = ID { ifaceModule       :: !Module
 emptyIfaceData :: Monoid spec => Module -> IfaceData spec
 emptyIfaceData mod = ID mod fingerprint0 [] mempty
 
-data IfaceSpec = IS { ifaceTySigs     :: ![(OccName, Located IfaceType)]
-                    , ifaceAsmSigs    :: ![(OccName, Located IfaceType)]
-                    , ifaceCtors      :: ![(OccName, Located IfaceType)]
+data IfaceSpec = IS { ifaceTySigs     :: ![(Name, Located IfaceType)]
+                    , ifaceAsmSigs    :: ![(Name, Located IfaceType)]
+                    , ifaceCtors      :: ![(Name, Located IfaceType)]
                     , ifaceMeas       :: ![(Symbol, Located IfaceType)]
                     , ifaceInvariants :: ![Located IfaceType]
                     , ifaceIAliases   :: ![(Located IfaceType, Located IfaceType)]
-                    , ifaceFreeSyms   :: ![(Symbol, OccName)]
+                    , ifaceFreeSyms   :: ![(Symbol, Name)]
                     , ifaceTcEmbeds   :: ![(IfaceTyCon, FTycon)]
                     , ifaceQualifiers :: ![Qualifier]
                     , ifaceTyConEnv   :: ![(IfaceTyCon, ITyCon)]
                     , ifaceRTEnv      :: ![(IfaceTyCon, RTAlias IfLclName IfaceType)]
-                    , ifaceTInlines   :: ![(OccName, TInline)]
+                    , ifaceTInlines   :: ![(Name, TInline)]
                     , ifaceExports    :: ![Name]
                     }
 

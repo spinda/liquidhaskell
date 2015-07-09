@@ -5,8 +5,6 @@ module Test3 () where
 
 import LiquidHaskell
 
-[lq| embed Int as int |]
-
 [lq| type Nat     = { v:Int | 0 <= v } |]
 [lq| type NatGE X = { v:Nat | X <  v } |]
 
