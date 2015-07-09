@@ -10,9 +10,12 @@ import GHC
 
 import Annotations
 import CoreSyn
+import DynFlags
 import GhcMonad
 import HscTypes
 import NameSet
+import TcAnnotations
+import TcRnMonad
 import TysWiredIn
 import Var
 import VarEnv
@@ -41,8 +44,9 @@ import Language.Haskell.Liquid.Spec.WiredIns
 makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> GhcSpec -> Ghc GhcSpec
 makeGhcSpec cfg exports mod vs anns cbs scope = do
   liftIO $ whenLoud $ putStrLn "extraction started..."
+  anns'                           <- (anns ++) <$> tcSigOfAnnotations mod
   wiredIns                        <- loadWiredIns
-  (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns cbs
+  (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns' cbs
   let inlines'                     = extendVarEnvList inlines $ tinlines scope
   ((tySigs, tySyns), freeSyms)    <- runReifyM doReify wiredIns (rtEnv scope) exprParams inlines'
   let freeSyms'                    = map (second (joinVar vs)) freeSyms
@@ -61,6 +65,20 @@ makeGhcSpec cfg exports mod vs anns cbs scope = do
     doReify = (,)
       <$> extractTySigs mod
       <*> extractTySyns mod
+
+-- | GHC throws away annotations when typechecking a .hs-boot or .hsig file.
+-- We need them, so hook in here to extract them in that case.
+tcSigOfAnnotations :: TypecheckedModule -> Ghc [Annotation]
+tcSigOfAnnotations mod
+  | isHsBootOrSig source = do
+    hscEnv <- getSession
+    liftIO $ initTcForLookup hscEnv $ tcAnnotations annDecls
+  | otherwise = return []
+  where
+    source =
+      ms_hsc_src $ pm_mod_summary $ tm_parsed_module mod
+    Just (HsGroup { hs_annds = annDecls }, _, _, _) =
+      tm_renamed_source mod
 
 -- the Vars we lookup in GHC don't always have the same tyvars as the Vars
 -- we're given, so return the original var when possible.
