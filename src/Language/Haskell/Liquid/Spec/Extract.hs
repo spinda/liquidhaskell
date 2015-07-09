@@ -23,17 +23,20 @@ import GHC hiding (Located)
 import Annotations
 import Bag
 import CoreSyn
+import HscTypes
 import MonadUtils
 import Name
 import NameEnv
 import Panic
 import Serialized
+import TcRnTypes
 import Var
 import VarEnv
 
 import Control.Monad.Reader
 
 import Data.Data (Data)
+import Data.List
 import Data.Maybe
 import Data.Typeable (Typeable)
 
@@ -152,7 +155,8 @@ extractTySigs mod = do
   liftIO $ putStrLn $ showPpr ids
   mapM (\id -> (id, ) <$> reifyRTy (idType id)) ids
   where
-    ids = idsFromSource $ tm_typechecked_source mod
+    ids      = nub $ topLevel ++ idsFromSource (tm_typechecked_source mod)
+    topLevel = mapMaybe tyThingId_maybe $ typeEnvElts $ tcg_type_env $ fst $ tm_internals_ mod
 
 extractTySyns :: TypecheckedModule -> ReifyM RTEnv
 extractTySyns mod = M.fromList <$> mapM go tysyns

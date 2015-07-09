@@ -156,8 +156,6 @@ processModule cfg summary@(ModSummary { ms_mod = mod }) = do
         let ghcInfo'  = ghcInfo { spec = ghcSpec' }
         let ifaceData = ID mod fingerprint dependencies ghcSpec
 
-        liftIO $ whenLoud $ putStrLn $ showpp ghcSpec'
-
         out <- liftIO $ liquidOne hsFile ghcInfo'
         case o_result out of
           Safe | noWriteIface cfg -> return ifaceData
@@ -206,13 +204,11 @@ getDeclImports summary = do
       mod  <- findModule (unLoc $ ideclName decl) (ideclPkgQual decl)
       home <- isHomeModule mod
       return $ if home then Right mod else Left mod
-    isHomeModule mod = do
-      hscEnv <- getSession
-      result <- liftIO $ findHomeModule hscEnv $ moduleName mod
-      return $ case result of
-        Found         _ _ -> True
-        FoundMultiple _   -> True
-        _                 -> False
+    isHomeModule = isHomePackage . modulePackageKey
+    isHomePackage pkg = do
+      homePkg <- thisPackage <$> getSessionDynFlags
+      liftIO $ putStrLn $ showPpr pkg ++ " vs " ++ showPpr homePkg
+      return (homePkg == pkg)
 
 getUsageImports :: Module -> Ghc ([Module], [Module])
 getUsageImports mod = do
