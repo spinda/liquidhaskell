@@ -34,6 +34,8 @@ import IfaceType hiding (IfaceType)
 import IOEnv
 import Kind
 import Module
+import Name
+import NameEnv
 import NameSet
 import OccName
 import PackageConfig
@@ -43,6 +45,7 @@ import TcIface
 import TcRnDriver
 import TcRnTypes
 import TcRnMonad
+import Unique
 import UniqFM
 import Var
 
@@ -160,17 +163,17 @@ instance Iface GhcSpec IfaceSpec where
        , ifaceMeas       = second (fmap toIface) <$> meas
        , ifaceInvariants = fmap toIface <$> invariants
        , ifaceIAliases   = ofIAlias <$> ialiases
-       , ifaceFreeSyms   = second getOccName <$> freeSyms
+       , ifaceFreeSyms   = second getName <$> freeSyms
        , ifaceTcEmbeds   = first toIfaceTyCon <$> M.toList tcEmbeds
        , ifaceQualifiers = qualifiers
        , ifaceTyConEnv   = ofTyConEnv <$> M.toList tyconEnv
        , ifaceRTEnv      = ofRTAlias <$> M.toList rtEnv
-       , ifaceTInlines   = first getOccName <$> filter isExported tinlines
+       , ifaceTInlines   = first getName <$> filter isExported tinlines
        , ifaceExports    = nameSetElems exports
        }
     where
       isExported = (`elemNameSet` exports) . getName . fst
-      ofTySig    = getOccName   *** fmap toIface
+      ofTySig    = getName      *** fmap toIface
       ofIAlias   = fmap toIface *** fmap toIface
       ofTyConEnv = toIfaceTyCon *** toIface
       ofRTAlias  = toIfaceTyCon *** toIface
@@ -303,10 +306,9 @@ instance Iface (RTAlias RTyVar SpecType) (RTAlias IfLclName IfaceType) where
 -- Utiliy Functions ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-lookupIfaceVar :: OccName -> IfL Var
-lookupIfaceVar v = do
+lookupIfaceVar :: Name -> IfL Var
+lookupIfaceVar name = do
   hscEnv    <- env_top <$> getEnv
-  name      <- lookupIfaceTop v
   (msgs, m) <- liftIO $ tcRnLookupName hscEnv name
   case m of
     Nothing    -> liftIO $ throwIO $ mkSrcErr $ snd msgs

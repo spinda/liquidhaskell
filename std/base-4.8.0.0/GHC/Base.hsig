@@ -1,0 +1,20 @@
+{-# OPTIONS_GHC -sig-of base:GHC.Base #-}
+
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE QuasiQuotes #-}
+
+module GHC.Base where
+
+import "base" GHC.Base
+import LiquidHaskell
+
+[lq|
+
+embed Int as int
+
+id :: x:a -> { v:a | x = v }
+
+|]
+

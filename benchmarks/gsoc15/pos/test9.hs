@@ -5,8 +5,6 @@ module Test7 () where
 
 import LiquidHaskell
 
-[lq| embed Int as int |]
-
 [lq| inline gt :: Int -> Int -> Bool |]
 gt x y = x > y
 
