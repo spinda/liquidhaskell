@@ -1,316 +1,138 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Language.Haskell.Liquid.Iface (
-    ifacePathWithHi
-  , findPkgIface
+    -- * Iface Cache
+    IfaceCache
+  , newIfaceCache
 
-  , validateIfaceData
-
-  , writeIfaceData
-  , readIfaceData
-  , loadIfaceData
-
+    -- * Iface Types
   , IfaceData(..)
-  , emptyIfaceData
-  , IfaceSpec
+  , mkIfaceFingerprint
+
+    -- * Load Iface Data
+  , tryLoadTargetIface
+  , getHomeIface
+  , getPkgIface
+
+    -- * Save Iface Data
+  , putTargetIface
   ) where
 
-import GHC hiding (L, Located)
+import GHC
 
-import BinIface
-import Exception
-import FastMutInt
-import Finder
+import DynFlags
+import FastString
 import Fingerprint
-import GhcMonad
 import HscTypes
-import IfaceEnv
-import IfaceType hiding (IfaceType)
-import IOEnv
-import Kind
 import Module
-import Name
-import NameEnv
-import NameSet
-import OccName
+import MonadUtils
 import PackageConfig
 import Packages
-import PrelNames
-import TcIface
-import TcRnDriver
-import TcRnTypes
-import TcRnMonad
-import Unique
+import TcPluginM
 import UniqFM
-import Var
 
-import Control.Arrow
-import Control.Monad
-
-import Data.Data (Data)
 import Data.IORef
 import Data.Maybe
-import Data.Monoid
-import Data.Typeable (Typeable)
 import Data.Version
 
-import qualified Data.HashMap.Strict as M
-
 import System.Directory
-import System.FilePath
 
-import Text.Parsec.Pos
-
-import Language.Fixpoint.Misc
-import Language.Fixpoint.Types hiding (Found, Predicate)
-
-import Language.Haskell.Liquid.CmdLine
 import Language.Haskell.Liquid.GhcMisc
-import Language.Haskell.Liquid.Misc
-import Language.Haskell.Liquid.RefType
-import Language.Haskell.Liquid.Types hiding (L, R)
+import Language.Haskell.Liquid.Types
 
-import Language.Haskell.Liquid.Iface.Binary ()
-import Language.Haskell.Liquid.Iface.Ghc
+import Language.Haskell.Liquid.Iface.File
 import Language.Haskell.Liquid.Iface.Types
 
 --------------------------------------------------------------------------------
--- Liquid Interface File Locations ---------------------------------------------
+-- Load Iface Data -------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-ifacePathWithHi :: ModLocation -> FilePath
-ifacePathWithHi = (`replaceExtension` "lqhi") . ml_hi_file
-
-
-findPkgIface :: GhcMonad m => Module -> m (Maybe FilePath)
-findPkgIface mod = do
-  fileGuesses <- mapMaybeM ($ mod) [findPkgIfaceWithHiFile, findPkgIfaceInStdLib]
-  liftIO $ listToMaybe <$> filterM doesFileExist fileGuesses
-
-findPkgIfaceWithHiFile :: GhcMonad m => Module -> m (Maybe FilePath)
-findPkgIfaceWithHiFile mod
-  | mod == gHC_PRIM = return Nothing
-  | otherwise = do
-    hscEnv <- getSession
-    result <- liftIO $ findExactModule hscEnv mod
-    return $ case result of
-      Found loc _ -> Just $ ifacePathWithHi loc
-      _           -> Nothing
-
-findPkgIfaceInStdLib :: GhcMonad m => Module -> m (Maybe FilePath)
-findPkgIfaceInStdLib mod = do
-  stdLibDir <- liftIO getStdLibDir
-  result    <- (`lookupPackage` package) <$> getSessionDynFlags
-  return $ case result of
-    Just cfg ->
-      let pkgDir = packageNameString cfg ++ '-' : showVersion (packageVersion cfg)
-      in  Just $ stdLibDir </> pkgDir </> lqhiFile
-    Nothing -> Nothing
+tryLoadTargetIface :: IfaceCache -> ModLocation -> Fingerprint -> TcPluginM (FilePath, Bool)
+tryLoadTargetIface cache loc fingerprint = do
+  exists <- tcPluginIO $ doesFileExist path
+  (path, ) <$> if exists
+     then do ifaceData@ID{..} <- readIfaceData path
+             if ifaceFingerprint == fingerprint
+                then True <$ tcPluginIO (extendIfaceCache cache ifaceData)
+                else return False
+     else return False
   where
-    lqhiFile = moduleNameSlashes (moduleName mod) <.> "lqhi"
-    package  = modulePackageKey mod
+    path = mkIfacePath loc
+
+getHomeIface :: IfaceCache -> Module -> IO (IfaceData GhcSpec)
+getHomeIface cache mod = do
+  cached <- lookupIfaceCache cache mod
+  case cached of
+    Just ifaceData -> return ifaceData
+    Nothing        -> error $
+      "LiquidHaskell spec for home package dependency not loaded in time: "
+        ++ showPpr mod
+
+getPkgIface :: IfaceCache -> Config -> Module -> TcPluginM (IfaceData GhcSpec)
+getPkgIface cache cfg mod = do
+  mod'   <- rewriteWiredMod cfg mod
+  cached <- tcPluginIO $ lookupIfaceCache cache mod'
+  case cached of
+    Just ifaceData ->
+      return ifaceData
+    Nothing -> do
+      found     <- findPkgIface mod'
+      ifaceData <- case found of
+        Nothing   -> return $ emptyIfaceData mod'
+        Just path -> readIfaceData path
+      ifaceData <$ tcPluginIO (extendIfaceCache cache ifaceData)
 
 --------------------------------------------------------------------------------
--- Iface Validation ------------------------------------------------------------
+-- Save Iface Data -------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-validateIfaceData :: Module
-                  -> Fingerprint
-                  -> [(Module, Fingerprint)]
-                  -> IfaceData spec
-                  -> Bool
-validateIfaceData mod fingerprint dependencies (ID {..}) =
-     ifaceModule       == mod
-  && ifaceFingerprint  == fingerprint
-  && ifaceDependencies == dependencies
+putTargetIface :: IfaceCache -> Maybe FilePath -> IfaceData GhcSpec -> IO ()
+putTargetIface cache path ifaceData = do
+  maybe (return ()) (`writeIfaceData` ifaceData) path
+  extendIfaceCache cache ifaceData
 
 --------------------------------------------------------------------------------
--- Read/Write Liquid Interface Files -------------------------------------------
+-- Rewrite Modules with Wired-In Specifications --------------------------------
 --------------------------------------------------------------------------------
 
-writeIfaceData :: FilePath -> IfaceData GhcSpec -> IO ()
-writeIfaceData path = writeIfaceFile path . toIface 
+rewriteWiredMod :: Config -> Module -> TcPluginM Module
+rewriteWiredMod cfg mod = do
+  pkg <- rewriteWiredPkg cfg $ modulePackageKey mod
+  return $ mod { modulePackageKey = pkg }
 
-readIfaceData :: GhcMonad m => FilePath -> m (IfaceData IfaceSpec)
-readIfaceData = readIfaceFile
+rewriteWiredPkg :: Config -> PackageKey -> TcPluginM PackageKey
+rewriteWiredPkg cfg pkg
+  | pkg == primPackageKey && not (noGhcPrimSpecs cfg) = mkWiredPkgKey primPackageKey "liquid-ghc-prim"
+  | pkg == basePackageKey && not (noBaseSpecs    cfg) = mkWiredPkgKey basePackageKey "liquid-base"
+  | otherwise                                         = return pkg
 
-loadIfaceData :: GhcMonad m => IfaceData IfaceSpec -> m (IfaceData GhcSpec)
-loadIfaceData dat =
-  runTcM $ initIfaceTc (emptyModIface $ ifaceModule dat) $ \_ -> fromIface dat
 
---------------------------------------------------------------------------------
--- Iface Type Conversion -------------------------------------------------------
---------------------------------------------------------------------------------
-
-class Iface spec iface | spec -> iface where
-  toIface   :: spec  -> iface 
-  fromIface :: iface -> IfL spec
-
-instance Iface (IfaceData GhcSpec) (IfaceData IfaceSpec) where
-  toIface   = fmap toIface
-  fromIface = traverse fromIface
-
-instance Iface GhcSpec IfaceSpec where
-  toIface (SP {..}) =
-    IS { ifaceTySigs     = ofTySig <$> filter isExported tySigs
-       , ifaceAsmSigs    = ofTySig <$> filter isExported asmSigs
-       , ifaceCtors      = ofTySig <$> filter isExported ctors
-       , ifaceMeas       = second (fmap toIface) <$> meas
-       , ifaceInvariants = fmap toIface <$> invariants
-       , ifaceIAliases   = ofIAlias <$> ialiases
-       , ifaceFreeSyms   = second getName <$> freeSyms
-       , ifaceTcEmbeds   = first toIfaceTyCon <$> M.toList tcEmbeds
-       , ifaceQualifiers = qualifiers
-       , ifaceTyConEnv   = ofTyConEnv <$> M.toList tyconEnv
-       , ifaceRTEnv      = ofRTAlias <$> M.toList rtEnv
-       , ifaceTInlines   = first getName <$> filter isExported tinlines
-       , ifaceExports    = nameSetElems exports
-       }
-    where
-      isExported = (`elemNameSet` exports) . getName . fst
-      ofTySig    = getName      *** fmap toIface
-      ofIAlias   = fmap toIface *** fmap toIface
-      ofTyConEnv = toIfaceTyCon *** toIface
-      ofRTAlias  = toIfaceTyCon *** toIface
-
-  fromIface (IS {..}) = do
-    tySigs     <- mapM ofTySig ifaceTySigs
-    asmSigs    <- mapM ofTySig ifaceAsmSigs
-    ctors      <- mapM ofTySig ifaceCtors
-    meas       <- mapM (secondM (traverse fromIface)) ifaceMeas
-    invariants <- mapM (traverse fromIface) ifaceInvariants
-    ialiases   <- mapM ofIAlias ifaceIAliases
-    freeSyms   <- mapM (secondM lookupIfaceVar) ifaceFreeSyms
-    tcEmbeds   <- M.fromList <$> mapM (firstM tcIfaceTyCon) ifaceTcEmbeds
-    tyconEnv   <- M.fromList <$> mapM ofTyConEnv ifaceTyConEnv
-    rtEnv      <- M.fromList <$> mapM ofRTAlias ifaceRTEnv
-    tinlines   <- mapM (firstM lookupIfaceVar) ifaceTInlines
-    return $ mempty
-      { tySigs     = tySigs
-      , asmSigs    = asmSigs
-      , ctors      = ctors
-      , meas       = meas
-      , invariants = invariants
-      , ialiases   = ialiases
-      , freeSyms   = freeSyms
-      , tcEmbeds   = tcEmbeds
-      , qualifiers = ifaceQualifiers
-      , tyconEnv   = tyconEnv
-      , rtEnv      = rtEnv
-      , tinlines   = tinlines
-      , exports    = mkNameSet ifaceExports
-      }
-    where
-      ofTySig    (v, t) = (,) <$> lookupIfaceVar v     <*> traverse fromIface t
-      ofIAlias   (x, y) = (,) <$> traverse fromIface x <*> traverse fromIface y
-      ofTyConEnv (t, i) = (,) <$> tcIfaceTyCon t       <*> fromIface i
-      ofRTAlias  (t, a) = (,) <$> tcIfaceTyCon t       <*> fromIface a
-
-instance Iface (RRType r) (IRType r) where
-  toIface (RVar tv r)       = RVar (toIface tv) r
-  toIface (RFun b i o r)    = RFun b (toIface i) (toIface o) r
-  toIface (RAllT tv ty)     = RAllT (toIface tv) (toIface ty)
-  toIface (RAllP pv ty)     = RAllP (toIface pv) (toIface ty)
-  toIface (RAllS sb ty)     = RAllS sb (toIface ty)
-  toIface (RApp tc as ps r) = RApp (toIface tc) (toIface <$> as) (toIface <$> ps) r
-  toIface (RAllE b a ty)    = RAllE b (toIface a) (toIface ty)
-  toIface (REx b e ty)      = REx b (toIface e) (toIface ty)
-  toIface (RExprArg e)      = RExprArg e
-  toIface (RAppTy t1 t2 r)  = RAppTy (toIface t1) (toIface t2) r
-  toIface (RRTy env r o ty) = RRTy (second toIface <$> env) r o (toIface ty)
-  toIface (RHole r)         = RHole r
-
-  fromIface (RVar tv r) =
-    (`RVar` r) <$> fromIface tv
-  fromIface (RFun b i o r) =
-    RFun b <$> fromIface i <*> fromIface o <*> pure r
-  fromIface (RAllT tv ty) =
-    bindIfaceTyVar (tv, toIfaceKind liftedTypeKind) $ \tv' -> RAllT (rTyVar tv') <$> fromIface ty
-  fromIface (RAllP pv ty) =
-    RAllP <$> fromIface pv <*> fromIface ty
-  fromIface (RAllS sb ty) =
-    RAllS sb <$> fromIface ty
-  fromIface (RApp tc as ps r) =
-    RApp <$> fromIface tc <*> mapM fromIface as <*> mapM fromIface ps <*> pure r
-  fromIface (RAllE b a ty) =
-    RAllE b <$> fromIface a <*> fromIface ty
-  fromIface (REx b e ty) =
-    REx b <$> fromIface e <*> fromIface ty
-  fromIface (RExprArg e) =
-    return $ RExprArg e
-  fromIface (RAppTy t1 t2 r) =
-    RAppTy <$> fromIface t1 <*> fromIface t2 <*> pure r
-  fromIface (RRTy env r o ty) =
-    RRTy <$> mapM (secondM fromIface) env <*> pure r <*> pure o <*> fromIface ty
-  fromIface (RHole r) =
-    return $ RHole r
-
-instance Iface RTyCon ITyCon where
-  toIface rtc =
-    ITyCon (toIfaceTyCon $ rtc_tc rtc)
-           (toIface <$> rTyConPVs rtc)
-           (rtc_info rtc)
-  fromIface itc =
-    RTyCon <$> tcIfaceTyCon (itc_tc itc)
-           <*> mapM fromIface (itc_pvars itc)
-           <*> pure (itc_info itc)
-
-instance Iface RTyVar IfLclName where
-  toIface   (RTV tv) = toIfaceTyVar tv
-  fromIface tv       = rTyVar <$> tcIfaceTyVar tv
-
-instance Iface s i => Iface (PVar s) (PVar i) where
-  toIface   (PV {..}) = PV pname (toIface ptype) parg (mapFst3 toIface <$> pargs)
-  fromIface (PV {..}) = PV pname <$> fromIface ptype <*> pure parg <*> mapM (first3M fromIface) pargs
-
-instance Iface s i => Iface (PVKind s) (PVKind i) where
-  toIface (PVProp t) = PVProp (toIface t)
-  toIface PVHProp    = PVHProp
-
-  fromIface (PVProp t) = PVProp <$> fromIface t
-  fromIface PVHProp    = return PVHProp
-
-instance (Iface τs τi, Iface ts ti) =>
-         Iface (Ref τs r ts) (Ref τi r ti) where
-  toIface (RPropP as r) = RPropP (second toIface <$> as) r
-  toIface (RProp  as b) = RProp  (second toIface <$> as) (toIface b)
-  toIface (RHProp as h) = RHProp (second toIface <$> as) (toIface h)
-
-  fromIface (RPropP as r) = (`RPropP` r) <$> (mapM (secondM fromIface) as)
-  fromIface (RProp  as b) = RProp        <$> (mapM (secondM fromIface) as) <*> fromIface b
-  fromIface (RHProp as h) = RHProp       <$> (mapM (secondM fromIface) as) <*> fromIface h
-
-instance Iface s i => Iface (World s) (World i) where
-  toIface   (World hs) = World (toIface <$> hs)
-  fromIface (World hs) = World <$> mapM fromIface hs
-
-instance Iface s i => Iface (HSeg s) (HSeg i) where
-  toIface (HBind a v) = HBind a (toIface v)
-  toIface (HVar pv)   = HVar pv
-
-  fromIface (HBind a v) = HBind a <$> fromIface v
-  fromIface (HVar pv)   = return $ HVar pv
-
-instance Iface (RTAlias RTyVar SpecType) (RTAlias IfLclName IfaceType) where
-  toIface (RTA ts es b) =
-    RTA (toIface <$> ts) es (toIface b)
-  fromIface (RTA ts es b) =
-    RTA <$> mapM fromIface ts <*> pure es <*> fromIface b
+mkWiredPkgKey :: PackageKey -> String -> TcPluginM PackageKey
+mkWiredPkgKey orig name = do
+  dflags         <- hsc_dflags <$> getTopEnv
+  let Just config = lookupPackage dflags orig
+  let strPkgId    = name ++ '-' : showVersion (packageVersion config)
+  let srcPkgId    = SourcePackageId $ mkFastString strPkgId
+  let matches     = searchPackageId dflags srcPkgId
+  return $ case matches of
+    []        -> stringToPackageKey strPkgId
+    (match:_) -> packageKey match
 
 --------------------------------------------------------------------------------
--- Utiliy Functions ------------------------------------------------------------
+-- IfaceCache Type Internals ---------------------------------------------------
 --------------------------------------------------------------------------------
 
-lookupIfaceVar :: Name -> IfL Var
-lookupIfaceVar name = do
-  hscEnv    <- env_top <$> getEnv
-  (msgs, m) <- liftIO $ tcRnLookupName hscEnv name
-  case m of
-    Nothing    -> liftIO $ throwIO $ mkSrcErr $ snd msgs
-    Just thing -> return $ tyThingId thing
+newtype IfaceCache = IC (IORef (ModuleEnv (IfaceData GhcSpec)))
+
+newIfaceCache :: IO IfaceCache
+newIfaceCache = IC <$> newIORef emptyModuleEnv
+
+lookupIfaceCache :: IfaceCache -> Module -> IO (Maybe (IfaceData GhcSpec))
+lookupIfaceCache (IC ref) mod = (`lookupModuleEnv` mod) <$> readIORef ref
+
+extendIfaceCache :: IfaceCache -> IfaceData GhcSpec -> IO ()
+extendIfaceCache (IC ref) ifaceData = atomicModifyIORef ref $ \env ->
+  (extendModuleEnv env (ifaceModule ifaceData) ifaceData, ())
 

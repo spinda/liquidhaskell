@@ -141,11 +141,11 @@ reifyRTy (AppTy t1 t2) =
 reifyRTy (TyConApp tc as) = go =<< getWiredIns
   where
     go wis
-      | tc == tc_Bind wis, [b, _a] <- as =
+      | tc == tc_Bind wis, [_, b, _a] <- as =
         invalidBind =<< traverse reifySymbol =<< reifyLocated b
-      | tc == tc_Refine wis, [a, b, p] <- as =
+      | tc == tc_Refine wis, [_, a, b, p] <- as =
         strengthen <$> reifyRTy a <*> reifyRReft b p
-      | tc == tc_ExprArgs wis, [a, es] <- as =
+      | tc == tc_ExprArgs wis, [_, a, es] <- as =
         reifyExprArgs a es
       | isTypeSynonymTyCon tc =
         reifyTySynApp tc as
@@ -411,7 +411,7 @@ reifyPos ty = (`go` ty) =<< getWiredIns
 reifyBind :: Type -> ReifyM (Symbol, Type)
 reifyBind ty = (`go` ty) =<< getWiredIns
   where
-    go wis (TyConApp tc [b, a])
+    go wis (TyConApp tc [_, b, a])
       | tc == tc_Bind wis = (, a) <$> (reifySymbol =<< (val <$> reifyLocated b))
     go _ _ = ((, ty) . tempSymbol "db") <$> mkFreshInt
 

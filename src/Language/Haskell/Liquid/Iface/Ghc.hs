@@ -1,8 +1,13 @@
 module Language.Haskell.Liquid.Iface.Ghc (
-    writeIfaceFile
+    -- * Run IfL in TcM
+    tcRnIfL
+
+    -- * Interface File Wrapping
+  , writeIfaceFile
   , readIfaceFile
+
+    -- * Functions Extracted from GHC
   , bindIfaceTyVar
-  , runTcM
   , tcIfaceTyCon
   ) where
 
@@ -25,6 +30,7 @@ import Kind
 import Name
 import Outputable
 import PrelInfo
+import TcEnv
 import TcIface
 import TcRnDriver
 import TcRnMonad
@@ -43,6 +49,17 @@ import Data.Char
 import Data.IORef
 import Data.List
 import Data.Word
+
+--------------------------------------------------------------------------------
+-- Run IfL in TcM --------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+tcRnIfL :: Module -> IfL a -> TcM a
+tcRnIfL mod act = do
+  typeEnvRef <- tcg_type_env_var <$> getGblEnv
+  typeEnv    <- liftIO $ readIORef typeEnvRef
+  initIfaceTc (emptyModIface mod) $ \ref ->
+    liftIO (writeIORef ref typeEnv) >> act
 
 --------------------------------------------------------------------------------
 -- Interface File Wrapping -----------------------------------------------------
@@ -91,8 +108,8 @@ writeIfaceFile path iface = do
   writeBinMem bh path
 
 -- | Adapted from GHC's readBinIface
-readIfaceFile :: (GhcMonad m, Binary a) => FilePath -> m a
-readIfaceFile path = runTcM $ do
+readIfaceFile :: Binary a => FilePath -> TcM a
+readIfaceFile path = do
   ncu <- mkNameCacheUpdater
   liftIO $ do
     bh <- readBinMem path
@@ -112,15 +129,6 @@ readIfaceFile path = runTcM $ do
     bh <- return $ setUserData bh $ newReadState (getSymtabName ncu dict symtab) (getDictFastString dict)
 
     get bh
-
---------------------------------------------------------------------------------
--- Run TcM in GhcMonad ---------------------------------------------------------
---------------------------------------------------------------------------------
-
-runTcM :: GhcMonad m => TcM a -> m a
-runTcM act = do
-  hscEnv <- getSession
-  liftIO $ initTcForLookup hscEnv act
 
 --------------------------------------------------------------------------------
 -- Types Extracted from GHC ----------------------------------------------------
@@ -269,23 +277,20 @@ tcIfaceTcArgs args
            ; return (k':ks') }
       ITC_Nil -> return []
 
--- | Adapted from the version in TcIface
 tcIfaceTyCon :: IfaceTyCon -> IfL TyCon
-tcIfaceTyCon itc = do
-  hscEnv    <- env_top <$> getEnv
-  (msgs, m) <- liftIO $ tcRnLookupName hscEnv (ifaceTyConName itc)
-  thing     <- case m of
-    Nothing -> liftIO $ throwIO $ mkSrcErr $ snd msgs
-    Just x  -> return x
-  case itc of
-    IfaceTc _ -> return $ tyThingTyCon thing
-    IfacePromotedDataCon _ -> return $ promoteDataCon $ tyThingDataCon thing
-    IfacePromotedTyCon name ->
-      let ktycon tc
-            | isSuperKind (tyConKind tc) = return tc
-            | Just prom_tc <- promotableTyCon_maybe tc = return prom_tc
-            | otherwise = pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing)
-      in ktycon (tyThingTyCon thing)
+tcIfaceTyCon itc
+  = do {
+    ; thing <- tcIfaceGlobal (ifaceTyConName itc)
+    ; case itc of
+        IfaceTc _ -> return $ tyThingTyCon thing
+        IfacePromotedDataCon _ -> return $ promoteDataCon $ tyThingDataCon thing
+        IfacePromotedTyCon name ->
+          let ktycon tc
+                | isSuperKind (tyConKind tc) = return tc
+                | Just prom_tc <- promotableTyCon_maybe tc = return prom_tc
+                | otherwise = pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing)
+          in ktycon (tyThingTyCon thing)
+    }
 
 tcIfaceTyLit :: IfaceTyLit -> IfL TyLit
 tcIfaceTyLit (IfaceNumTyLit n) = return (NumTyLit n)

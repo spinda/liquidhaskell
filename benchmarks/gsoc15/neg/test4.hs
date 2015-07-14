@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Test3 () where

@@ -43,7 +43,6 @@ import Language.Haskell.Liquid.Spec.WiredIns
 
 makeGhcSpec :: Config -> NameSet -> TypecheckedModule -> [Var] -> [Annotation] -> [CoreBind] -> GhcSpec -> Ghc GhcSpec
 makeGhcSpec cfg exports mod vs anns cbs scope = do
-  liftIO $ whenLoud $ putStrLn "extraction started..."
   anns'                           <- (anns ++) <$> tcSigOfAnnotations mod
   wiredIns                        <- loadWiredIns
   (exprParams, tcEmbeds, inlines) <- runExtractM doExtract anns' cbs

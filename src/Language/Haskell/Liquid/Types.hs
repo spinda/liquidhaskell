@@ -262,6 +262,7 @@ data Config = Config {
   , fullcheck      :: Bool       -- ^ check all binders (overrides diffcheck)
   , native         :: Bool       -- ^ use native (Haskell) fixpoint constraint solver
   , binders        :: [String]   -- ^ set of binders to check
+  , noVerify       :: Bool       -- ^ skip verification (default: False)
   , noWriteIface   :: Bool       -- ^ skip producing a .lqhi file for verified modules
   , noCheckUnknown :: Bool       -- ^ whether to complain about specifications for unexported and unused values
   , notermination  :: Bool       -- ^ disable termination check
@@ -279,6 +280,8 @@ data Config = Config {
   , cabalDir       :: Bool       -- ^ find and use .cabal file to include paths to sources for imported modules
   , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
   , cFiles         :: [String]   -- ^ .c files to compile and link against (for GHC)
+  , noGhcPrimSpecs :: Bool       -- ^ turn off wired-in specifications for the `ghc-prim` package
+  , noBaseSpecs    :: Bool       -- ^ turn off wired-in specifications for the `base` package
   } deriving (Data, Typeable, Show, Eq)
 
 
