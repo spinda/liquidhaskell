@@ -150,10 +150,7 @@ convertPos (RT.Pos name line col) = newPos name line col
 --------------------------------------------------------------------------------
 
 extractTySigs :: TypecheckedModule -> ReifyM [(Var, SpecType)]
-extractTySigs mod = do
-  liftIO $ putStrLn $ showPpr $ tm_typechecked_source mod
-  liftIO $ putStrLn $ showPpr ids
-  mapM (\id -> (id, ) <$> reifyRTy (idType id)) ids
+extractTySigs mod = mapM (\id -> (id, ) <$> reifyRTy (idFullType id)) ids
   where
     ids      = nub $ topLevel ++ idsFromSource (tm_typechecked_source mod)
     topLevel = mapMaybe tyThingId_maybe $ typeEnvElts $ tcg_type_env $ fst $ tm_internals_ mod

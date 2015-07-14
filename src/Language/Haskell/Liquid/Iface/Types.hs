@@ -1,16 +1,19 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Language.Haskell.Liquid.Iface.Types (
     IfaceData(..)
-  , emptyIfaceData
   , IfaceSpec(..)
   , IRType
   , ISort
   , IPVar
   , IfaceType
   , ITyCon(..)
+
+  , emptyIfaceData
+  , mkIfaceFingerprint
   ) where
 
 import Fingerprint
@@ -20,8 +23,15 @@ import Name
 import Name
 import TyCon
 
+import Control.Arrow
+
+import Data.List
+
+import Text.Printf
+
 import Language.Fixpoint.Types
 
+import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Types
 
 --------------------------------------------------------------------------------
@@ -30,12 +40,8 @@ import Language.Haskell.Liquid.Types
 
 data IfaceData spec = ID { ifaceModule       :: !Module
                          , ifaceFingerprint  :: !Fingerprint
-                         , ifaceDependencies :: ![(Module, Fingerprint)]
                          , ifaceSpec         :: !spec
                          } deriving (Foldable, Functor, Traversable)
-
-emptyIfaceData :: Monoid spec => Module -> IfaceData spec
-emptyIfaceData mod = ID mod fingerprint0 [] mempty
 
 data IfaceSpec = IS { ifaceTySigs     :: ![(Name, Located IfaceType)]
                     , ifaceAsmSigs    :: ![(Name, Located IfaceType)]
@@ -52,6 +58,7 @@ data IfaceSpec = IS { ifaceTySigs     :: ![(Name, Located IfaceType)]
                     , ifaceExports    :: ![Name]
                     }
 
+
 type IRType    = RType ITyCon IfLclName
 type ISort     = IRType ()
 type IPVar     = PVar ISort
@@ -62,4 +69,22 @@ data ITyCon = ITyCon
   , itc_pvars :: ![IPVar]      -- ^ Predicate Parameters
   , itc_info  :: !TyConInfo    -- ^ TyConInfo
   }
+
+
+emptyIfaceData :: Monoid spec => Module -> IfaceData spec
+emptyIfaceData mod = ID mod fingerprint0 mempty
+
+mkIfaceFingerprint :: Module -> FilePath -> [IfaceData spec] -> IO Fingerprint
+mkIfaceFingerprint mod sourceFile externData = do
+  sourceHash <- getFileHash sourceFile
+  let digests = map mkDigest $ (mod, sourceHash) : externFingerprints
+  let summary = intercalate ";" digests
+  return $ fingerprintString summary 
+  where
+    externFingerprints   = sortBy cmp $ map (ifaceModule &&& ifaceFingerprint) externData
+    cmp (x, _) (y, _)    = stableModuleCmp x y
+    mkDigest (mod, hash) =
+      printf "%s:%s=%s" (packageKeyString $ modulePackageKey mod)
+                        (moduleNameString $ moduleName mod)
+                        (show hash)
 

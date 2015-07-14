@@ -27,9 +27,8 @@ instance Binary spec => Binary (IfaceData spec) where
   put_ bh (ID {..}) = do
     put_ bh ifaceModule
     put_ bh ifaceFingerprint
-    put_ bh ifaceDependencies
     put_ bh ifaceSpec
-  get bh = ID <$> get bh <*> get bh <*> get bh <*> get bh
+  get bh = ID <$> get bh <*> get bh <*> get bh
 
 instance Binary IfaceSpec where
   put_ bh (IS {..}) = do

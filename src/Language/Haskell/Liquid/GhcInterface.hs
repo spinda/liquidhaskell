@@ -30,7 +30,7 @@ import GHC.Paths (libdir)
 import System.FilePath ( replaceExtension, normalise)
 
 import DynFlags
-import Control.Monad (filterM, foldM, when, forM, forM_, liftM)
+import Control.Monad (filterM, foldM, when, forM, forM_, liftM, void)
 import Control.Applicative  hiding (empty)
 import Data.Bifunctor
 import Data.Monoid hiding ((<>))
@@ -62,8 +62,9 @@ import qualified Language.Haskell.Liquid.Measure as Ms
 getGhcInfo :: Config -> GhcSpec -> FilePath -> ModSummary -> Ghc GhcInfo
 getGhcInfo cfg scope hsFile summary = do
   liftIO              $ cleanFiles hsFile
+  summary'           <- updateDynFlags cfg summary
 
-  parsed             <- parseModule summary
+  parsed             <- parseModule summary'
   let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
   typechecked        <- typecheckModule $ ignoreInline parsed'
   desugared          <- desugarModule typechecked
@@ -83,7 +84,7 @@ getGhcInfo cfg scope hsFile summary = do
   let letVs           = letVars     coreBinds
   let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
 
-  setContext [IIModule $ moduleName $ ms_mod summary]
+  setContext [IIModule $ moduleName $ ms_mod summary']
   spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds scope
 
   let paths           = idirs cfg
@@ -91,6 +92,40 @@ getGhcInfo cfg scope hsFile summary = do
   hqualFiles         <- moduleHquals modguts paths hsFile
 
   return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+
+
+-- TODO: Ensure our modifications to the DynFlags meet three goals:
+--       (a) anything the module needs to compile, eg. extensions, persists;
+--       (b) our setup is resilient enough that LH always has what it needs
+--           under a variety of custom flags passed to GHC;
+--       (c) LH's extra compilation step is as performant and light-weight as
+--           possible.
+updateDynFlags :: Config -> ModSummary -> Ghc ModSummary
+updateDynFlags cfg summary = do
+  df <- getSessionDynFlags
+  let df' = df { importPaths        = idirs cfg ++ importPaths df
+               , libraryPaths       = idirs cfg ++ libraryPaths df
+               , includePaths       = idirs cfg ++ includePaths df
+               , pluginModNames     = filter (/= mkModuleName "LiquidHaskell.Plugin") $ pluginModNames df
+               , ghcMode            = CompManager
+               , ghcLink            = NoLink
+               , optLevel           = 0
+               , simplPhases        = 2
+               , maxSimplIterations = 4
+               , hscTarget          = HscNothing
+               , profAuto           = ProfAutoCalls
+               -- prevent GHC from printing anything
+               , log_action         = \_ _ _ _ _ -> return ()
+               -- , verbosity = 3
+               } `xopt_set` Opt_DataKinds
+                 `xopt_set` Opt_LiberalTypeSynonyms
+                 `gopt_set` Opt_PIC
+#if __GLASGOW_HASKELL__ >= 710
+                 `gopt_set` Opt_Debug
+#endif
+  (df'',_,_) <- parseDynamicFlags df' (map noLoc $ ghcOptions cfg)
+  setSessionDynFlags $ df''
+  return $ summary { ms_hspp_opts = df'' }
 
 
 replaceModule :: ModuleName -> ModuleName -> ParsedModule -> ParsedModule
@@ -162,7 +197,7 @@ cleanFiles fn
   = do forM_ bins (tryIgnore "delete binaries" . removeFileIfExists)
        tryIgnore "create temp directory" $ createDirectoryIfMissing False dir
     where
-       bins = replaceExtension fn <$> ["hi", "o"]
+       bins = replaceExtension fn <$> [] --"hi", "o"]
        dir  = tempDirectory fn
 
 

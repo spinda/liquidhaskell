@@ -95,6 +95,10 @@ config = cmdArgsMode $ Config {
  , binders
     = def &= help "Check a specific set of binders"
 
+ , noVerify
+    = def &= help "Skip verification"
+          &= name "no-verify"
+
  , noPrune
     = def &= help "Disable prunning unsorted Predicates"
           &= name "no-prune-unsorted"
@@ -162,6 +166,14 @@ config = cmdArgsMode $ Config {
           &= typ "OPTION"
           &= help "Tell GHC to compile and link against these files"
 
+ , noGhcPrimSpecs
+    = def &= help "Turn off wired-in specifications for the `ghc-prim` package"
+          &= name "no-ghc-prim-specs"
+
+ , noBaseSpecs
+    = def &= help "Turn off wired-in specifications for the `base` package"
+          &= name "no-base-specs"
+
  } &= verbosity
    &= program "liquid"
    &= help    "Refinement Types for Haskell"
@@ -172,10 +184,10 @@ config = cmdArgsMode $ Config {
               , "  liquid foo.hs "
               ]
 
-getOpts :: IO Config
-getOpts = do
+getOpts :: [String] -> IO Config
+getOpts args = do
   cfg0    <- envCfg
-  cfg1    <- mkOpts =<< cmdArgsRun' config
+  cfg1    <- mkOpts =<< cmdArgsRun' config args
   cfg     <- fixConfig $ mconcat [cfg0, cfg1]
   whenNormal $ putStrLn copyright
   case smtsolver cfg of
@@ -187,14 +199,13 @@ getOpts = do
   where
     noSmtError = "LiquidHaskell requires an SMT Solver, i.e. z3, cvc4, or mathsat to be installed."
 
-cmdArgsRun' :: Mode (CmdArgs a) -> IO a
-cmdArgsRun' mode
-  = do parseResult <- process mode <$> getArgs
-       case parseResult of
-         Left err ->
-           putStrLn (help err) >> exitFailure
-         Right args ->
-           cmdArgsApply args
+cmdArgsRun' :: Mode (CmdArgs a) -> [String] -> IO a
+cmdArgsRun' mode args
+  = case process mode args of
+      Left err ->
+        putStrLn (help err) >> exitFailure
+      Right args ->
+        cmdArgsApply args
     where
       help err = showText defaultWrap $ helpText [err] HelpFormatDefault mode
 
@@ -295,7 +306,7 @@ fixCabalDirs' cfg i = cfg { idirs      = nub $ idirs cfg ++ sourceDirs i ++ buil
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def def def 2 def def def def def def
+  mempty        = Config def def def def def def def def def def def def def def def def def def 2 def def def def def def def def
   mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
                          , idirs          = sortNub $ idirs c1   ++     idirs          c2
                          , fullcheck      = fullcheck c1         ||     fullcheck      c2
@@ -303,6 +314,7 @@ instance Monoid Config where
                          , diffcheck      = diffcheck c1         ||     diffcheck      c2
                          , native         = native    c1         ||     native         c2
                          , binders        = sortNub $ binders c1 ++     binders        c2
+                         , noVerify       = noVerify       c1    ||     noVerify       c2
                          , noWriteIface   = noWriteIface   c1    ||     noWriteIface   c2
                          , noCheckUnknown = noCheckUnknown c1    ||     noCheckUnknown c2
                          , notermination  = notermination  c1    ||     notermination  c2
@@ -320,6 +332,8 @@ instance Monoid Config where
                          , cabalDir       = cabalDir    c1       ||     cabalDir       c2
                          , ghcOptions     = ghcOptions c1        ++     ghcOptions     c2
                          , cFiles         = cFiles c1            ++     cFiles         c2
+                         , noGhcPrimSpecs = noGhcPrimSpecs c1    ||     noGhcPrimSpecs c2
+                         , noBaseSpecs    = noBaseSpecs c1       ||     noBaseSpecs    c2
                          }
 
 instance Monoid SMTSolver where

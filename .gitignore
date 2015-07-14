@@ -4,6 +4,8 @@ cabal-dev
 *.md
 *.o
 *.hi
+*.dyn_o
+*.dyn_hi
 *.chi
 *.chs.h
 .virthualenv

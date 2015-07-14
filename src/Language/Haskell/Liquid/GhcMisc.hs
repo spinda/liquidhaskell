@@ -34,6 +34,7 @@ import           ErrUtils
 import           CoreLint
 import           CoreMonad
 import           GhcMonad
+import qualified TcPluginM as TcPluginM
 
 import           Language.Fixpoint.Names      (dropModuleNames)
 import           Text.Parsec.Pos              (sourceName, sourceLine, sourceColumn, SourcePos, newPos)
@@ -53,13 +54,16 @@ import           RdrName
 import           Type                         (liftedTypeKind)
 import           TypeRep
 import           Var
+import           Id 
 import           IdInfo
+import           ConLike
 import qualified TyCon                        as TC
--- import qualified DataCon                      as DC
+import qualified DataCon                      as DC
 import           Data.Char                    (isLower, isSpace)
 import           Data.Monoid                  (mempty)
 import           Data.Hashable
 import qualified Data.HashSet                 as S
+import           Data.IORef
 import qualified Data.List                    as L
 import           Data.Aeson
 import qualified Data.Text.Encoding           as T
@@ -462,8 +466,20 @@ tyConTyVarsDef c | TC.isPromotedDataCon c = error ("TyVars on " ++ show c) -- DC
 tyConTyVarsDef c = TC.tyConTyVars c 
 
 tyThingId_maybe :: TyThing -> Maybe Id
-tyThingId_maybe (AnId id) = Just id
-tyThingId_maybe _         = Nothing
+tyThingId_maybe (AnId x)                   = Just x
+tyThingId_maybe (AConLike (RealDataCon x)) = Just $ DC.dataConWorkId x
+tyThingId_maybe _                          = Nothing
+
+idFullType :: Id -> Kind
+idFullType id = case isDataConWorkId_maybe id of
+  Nothing -> idType id
+  Just dc -> dataConUserType dc
+
+tcPluginGhc :: Ghc a -> TcPluginM.TcPluginM a
+tcPluginGhc act = do
+  env <- TcPluginM.getTopEnv
+  ref <- TcPluginM.tcPluginIO $ newIORef env
+  TcPluginM.tcPluginIO $ unGhc act $ Session ref
 
 
 
