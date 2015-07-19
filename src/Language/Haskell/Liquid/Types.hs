@@ -253,34 +253,29 @@ import Data.Default
 
 -- NOTE: adding strictness annotations breaks the help message
 data Config = Config {
-    files          :: [FilePath] -- ^ source files to check
-  , idirs          :: [FilePath] -- ^ path to directory for including specs
-  , diffcheck      :: Bool       -- ^ check subset of binders modified (+ dependencies) since last check
-  , real           :: Bool       -- ^ supports real number arithmetic
-  , fullcheck      :: Bool       -- ^ check all binders (overrides diffcheck)
-  , native         :: Bool       -- ^ use native (Haskell) fixpoint constraint solver
-  , binders        :: [String]   -- ^ set of binders to check
-  , noVerify       :: Bool       -- ^ skip verification (default: False)
-  , noWriteIface   :: Bool       -- ^ skip producing a .lqhi file for verified modules
-  , noCheckUnknown :: Bool       -- ^ whether to complain about specifications for unexported and unused values
-  , notermination  :: Bool       -- ^ disable termination check
-  , nowarnings     :: Bool       -- ^ disable warnings output (only show errors)
-  , trustinternals :: Bool       -- ^ type all internal variables with true
-  , nocaseexpand   :: Bool       -- ^ disable case expand
-  , strata         :: Bool       -- ^ enable strata analysis
-  , notruetypes    :: Bool       -- ^ disable truing top level types
-  , totality       :: Bool       -- ^ check totality in definitions
-  , noPrune        :: Bool       -- ^ disable prunning unsorted Refinements
-  , maxParams      :: Int        -- ^ the maximum number of parameters to accept when mining qualifiers
+    diffcheck      :: Bool             -- ^ check subset of binders modified (+ dependencies) since last check
+  , real           :: Bool             -- ^ supports real number arithmetic
+  , fullcheck      :: Bool             -- ^ check all binders (overrides diffcheck)
+  , native         :: Bool             -- ^ use native (Haskell) fixpoint constraint solver
+  , binders        :: [String]         -- ^ set of binders to check
+  , noVerify       :: Bool             -- ^ skip verification (default: False)
+  , noWriteIface   :: Bool             -- ^ skip producing a .lqhi file for verified modules
+  , noCheckUnknown :: Bool             -- ^ whether to complain about specifications for unexported and unused values
+  , notermination  :: Bool             -- ^ disable termination check
+  , nowarnings     :: Bool             -- ^ disable warnings output (only show errors)
+  , trustinternals :: Bool             -- ^ type all internal variables with true
+  , nocaseexpand   :: Bool             -- ^ disable case expand
+  , strata         :: Bool             -- ^ enable strata analysis
+  , notruetypes    :: Bool             -- ^ disable truing top level types
+  , totality       :: Bool             -- ^ check totality in definitions
+  , noPrune        :: Bool             -- ^ disable prunning unsorted Refinements
+  , maxParams      :: Int              -- ^ the maximum number of parameters to accept when mining qualifiers
   , smtsolver      :: Maybe SMTSolver  -- ^ name of smtsolver to use [default: try z3, cvc4, mathsat in order]
-  , shortNames     :: Bool       -- ^ drop module qualifers from pretty-printed names.
-  , shortErrors    :: Bool       -- ^ don't show subtyping errors and contexts.
-  , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
-  , cFiles         :: [String]   -- ^ .c files to compile and link against (for GHC)
-  , noGhcPrimSpecs :: Bool       -- ^ turn off wired-in specifications for the `ghc-prim` package
-  , noBaseSpecs    :: Bool       -- ^ turn off wired-in specifications for the `base` package
+  , shortNames     :: Bool             -- ^ drop module qualifers from pretty-printed names.
+  , shortErrors    :: Bool             -- ^ don't show subtyping errors and contexts.
+  , noGhcPrimSpecs :: Bool             -- ^ turn off wired-in specifications for the `ghc-prim` package
+  , noBaseSpecs    :: Bool             -- ^ turn off wired-in specifications for the `base` package
   } deriving (Data, Typeable, Show, Eq)
-
 
 -----------------------------------------------------------------------------
 -- | Printer ----------------------------------------------------------------

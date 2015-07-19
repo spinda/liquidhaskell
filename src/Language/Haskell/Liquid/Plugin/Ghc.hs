@@ -1,9 +1,10 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE TypeSynonymInstances      #-}
 {-# LANGUAGE FlexibleInstances         #-}
-{-# LANGUAGE TupleSections             #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE TypeSynonymInstances      #-}
+{-# LANGUAGE TupleSections             #-}
 
 module Language.Haskell.Liquid.Plugin.Ghc (
     -- * Extract All Information Needed for Verification
@@ -64,7 +65,7 @@ import Language.Haskell.Liquid.Visitors
 getGhcInfo :: Config -> GhcSpec -> FilePath -> ModSummary -> Ghc GhcInfo
 getGhcInfo cfg scope hsFile summary = do
   liftIO              $ cleanFiles hsFile
-  summary'           <- updateDynFlags cfg summary
+  summary'           <- updateDynFlags summary
 
   parsed             <- parseModule summary'
   let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
@@ -103,13 +104,10 @@ cleanFiles = createDirectoryIfMissing False . tempDirectory
 --           under a variety of custom flags passed to GHC;
 --       (c) LH's extra compilation step is as performant and light-weight as
 --           possible.
-updateDynFlags :: Config -> ModSummary -> Ghc ModSummary
-updateDynFlags cfg summary = do
-  df <- getSessionDynFlags
-  let df' = df { importPaths        = idirs cfg ++ importPaths df
-               , libraryPaths       = idirs cfg ++ libraryPaths df
-               , includePaths       = idirs cfg ++ includePaths df
-               , pluginModNames     = filter (/= mkModuleName "LiquidHaskell.Plugin") $ pluginModNames df
+updateDynFlags :: ModSummary -> Ghc ModSummary
+updateDynFlags summary = do
+  df@DynFlags{..} <- getSessionDynFlags
+  let df' = df { pluginModNames     = filter (/= mkModuleName "LiquidHaskell.Plugin") pluginModNames
                , ghcMode            = CompManager
                , ghcLink            = NoLink
                , optLevel           = 0
@@ -126,9 +124,8 @@ updateDynFlags cfg summary = do
 #if __GLASGOW_HASKELL__ >= 710
                  `gopt_set` Opt_Debug
 #endif
-  (df'',_,_) <- parseDynamicFlags df' (map noLoc $ ghcOptions cfg)
-  setSessionDynFlags $ df''
-  return $ summary { ms_hspp_opts = df'' }
+  setSessionDynFlags $ df'
+  return $ summary { ms_hspp_opts = df' }
 
 replaceModule :: ModuleName -> ModuleName -> ParsedModule -> ParsedModule
 replaceModule orig repl pm@(ParsedModule summary source _ _) =
