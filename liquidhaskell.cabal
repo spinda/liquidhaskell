@@ -129,6 +129,7 @@ Library
                     Language.Haskell.Liquid.Visitors,
                     Language.Haskell.Liquid.WiredIn,
                     Language.Haskell.Liquid.Names,
+                    Language.Haskell.Liquid.Cabal,
                     Paths_liquidhaskell,
 
                     Language.Haskell.Liquid.Plugin,
@@ -148,6 +149,7 @@ Library
                     Language.Haskell.Liquid.Spec.Reify,
                     Language.Haskell.Liquid.Spec.WiredIns,
 
+                    LiquidHaskell.Cabal,
                     LiquidHaskell.Plugin
 
    if impl(ghc < 7.10)
