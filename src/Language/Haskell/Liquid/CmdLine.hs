@@ -16,7 +16,7 @@
 
 module Language.Haskell.Liquid.CmdLine (
    -- * Get Command Line Configuration
-     getOpts, mkOpts
+     getOpts
 
    -- * Update Configuration With Pragma
    , withPragmas
@@ -66,16 +66,7 @@ import Text.PrettyPrint.HughesPJ           hiding (Mode)
 ---------------------------------------------------------------------------------
 
 config = cmdArgsMode $ Config {
-   files
-    = def &= typ "TARGET"
-          &= args
-          &= typFile
-
- , idirs
-    = def &= typDir
-          &= help "Paths to Spec Include Directory "
-
- , fullcheck
+   fullcheck
      = def
            &= help "Full Checking: check all binders (DEFAULT)"
 
@@ -149,16 +140,6 @@ config = cmdArgsMode $ Config {
     = def &= name "short-errors"
           &= help "Don't show long error messages, just line numbers."
 
- , ghcOptions
-    = def &= name "ghc-option"
-          &= typ "OPTION"
-          &= help "Pass this option to GHC"
-
- , cFiles
-    = def &= name "c-files"
-          &= typ "OPTION"
-          &= help "Tell GHC to compile and link against these files"
-
  , noGhcPrimSpecs
     = def &= help "Turn off wired-in specifications for the `ghc-prim` package"
           &= name "no-ghc-prim-specs"
@@ -179,9 +160,7 @@ config = cmdArgsMode $ Config {
 
 getOpts :: [String] -> IO Config
 getOpts args = do
-  cfg0    <- envCfg
-  cfg1    <- mkOpts =<< cmdArgsRun' config args
-  cfg     <- fixConfig $ mconcat [cfg0, cfg1]
+  cfg <- fixDiffCheck <$> cmdArgsRun' config args
   whenNormal $ putStrLn copyright
   case smtsolver cfg of
     Just _  -> return cfg
@@ -205,48 +184,10 @@ cmdArgsRun' mode args
 findSmtSolver :: SMTSolver -> IO (Maybe SMTSolver)
 findSmtSolver smt = maybe Nothing (const $ Just smt) <$> findExecutable (show smt)
 
-fixConfig :: Config -> IO Config
-fixConfig cfg = do
-  pwd <- getCurrentDirectory
-  cfg <- canonicalizePaths pwd cfg
-  return $ fixDiffCheck cfg
-
--- | Attempt to canonicalize all `FilePath's in the `Config' so we don't have
---   to worry about relative paths.
-canonicalizePaths :: FilePath -> Config -> IO Config
-canonicalizePaths pwd cfg = do
-  tgt   <- canonicalizePath pwd
-  isdir <- doesDirectoryExist tgt
-  is    <- mapM (canonicalize tgt isdir) $ idirs cfg
-  cs    <- mapM (canonicalize tgt isdir) $ cFiles cfg
-  return $ cfg { idirs = is, cFiles = cs }
-
-canonicalize :: FilePath -> Bool -> FilePath -> IO FilePath
-canonicalize tgt isdir f
-  | isAbsolute f = return f
-  | isdir        = canonicalizePath (tgt </> f)
-  | otherwise    = canonicalizePath (takeDirectory tgt </> f)
-
 fixDiffCheck :: Config -> Config
 fixDiffCheck cfg = cfg { diffcheck = diffcheck cfg && not (fullcheck cfg) }
 
-envCfg = do so <- lookupEnv "LIQUIDHASKELL_OPTS"
-            case so of
-              Nothing -> return mempty
-              Just s  -> parsePragma $ envLoc s
-         where
-            envLoc  = Loc l l
-            l       = newPos "ENVIRONMENT" 0 0
-
 copyright = "LiquidHaskell Copyright 2009-15 Regents of the University of California. All Rights Reserved.\n"
-
-mkOpts :: Config -> IO Config
-mkOpts cfg
-  = do let files' = sortNub $ files cfg
-       id0 <- getIncludeDir
-       return  $ cfg { files = files' }
-                     { idirs = (dropFileName <$> files') ++ [id0 </> gHC_VERSION, id0] ++ idirs cfg }
-                              -- tests fail if you flip order of idirs'
 
 ---------------------------------------------------------------------------------------
 -- | Updating options
@@ -255,7 +196,7 @@ mkOpts cfg
 ---------------------------------------------------------------------------------------
 withPragmas :: Config -> FilePath -> [Located String] -> IO Config
 ---------------------------------------------------------------------------------------
-withPragmas cfg fp ps = foldM withPragma cfg ps >>= canonicalizePaths fp
+withPragmas cfg fp ps = foldM withPragma cfg ps
 
 withPragma :: Config -> Located String -> IO Config
 withPragma c s = (c `mappend`) <$> parsePragma s
@@ -271,12 +212,10 @@ parsePragma s = withArgs [val s] $ cmdArgsRun config
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def def def def 2 def def def def def def def
-  mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
-                         , idirs          = sortNub $ idirs c1   ++     idirs          c2
-                         , fullcheck      = fullcheck c1         ||     fullcheck      c2
+  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def
+  mappend c1 c2 = Config { diffcheck      = diffcheck c1         ||     diffcheck      c2
                          , real           = real      c1         ||     real           c2
-                         , diffcheck      = diffcheck c1         ||     diffcheck      c2
+                         , fullcheck      = fullcheck c1         ||     fullcheck      c2
                          , native         = native    c1         ||     native         c2
                          , binders        = sortNub $ binders c1 ++     binders        c2
                          , noVerify       = noVerify       c1    ||     noVerify       c2
@@ -294,8 +233,6 @@ instance Monoid Config where
                          , smtsolver      = smtsolver c1      `mappend` smtsolver      c2
                          , shortNames     = shortNames c1        ||     shortNames     c2
                          , shortErrors    = shortErrors c1       ||     shortErrors    c2
-                         , ghcOptions     = ghcOptions c1        ++     ghcOptions     c2
-                         , cFiles         = cFiles c1            ++     cFiles         c2
                          , noGhcPrimSpecs = noGhcPrimSpecs c1    ||     noGhcPrimSpecs c2
                          , noBaseSpecs    = noBaseSpecs c1       ||     noBaseSpecs    c2
                          }
