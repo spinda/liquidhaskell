@@ -5,7 +5,6 @@
 {-# LANGUAGE TypeSynonymInstances      #-}
 {-# OPTIONS_GHC -fno-cse #-}
 
-{-@ LIQUID "--cabaldir" @-}
 {-@ LIQUID "--diff"     @-}
 
 -- | This module contains all the code needed to output the result which
@@ -21,7 +20,6 @@ module Language.Haskell.Liquid.CmdLine (
 
    -- * Update Configuration With Pragma
    , withPragmas
-   , withCabal
 
    -- * Exit Function
    , exitWithResult
@@ -58,7 +56,6 @@ import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
 import Language.Haskell.Liquid.Types       hiding (config, name, typ)
 import Language.Haskell.Liquid.Errors
-import Language.Haskell.Liquid.Cabal
 
 import Text.Parsec.Pos                     (newPos)
 import Text.PrettyPrint.HughesPJ           hiding (Mode)
@@ -152,10 +149,6 @@ config = cmdArgsMode $ Config {
     = def &= name "short-errors"
           &= help "Don't show long error messages, just line numbers."
 
- , cabalDir
-    = def &= name "cabal-dir"
-          &= help "Find and use .cabal to add paths to sources for imported files"
-
  , ghcOptions
     = def &= name "ghc-option"
           &= typ "OPTION"
@@ -216,7 +209,6 @@ fixConfig :: Config -> IO Config
 fixConfig cfg = do
   pwd <- getCurrentDirectory
   cfg <- canonicalizePaths pwd cfg
-  -- cfg <- withCabal cfg
   return $ fixDiffCheck cfg
 
 -- | Attempt to canonicalize all `FilePath's in the `Config' so we don't have
@@ -271,33 +263,6 @@ withPragma c s = (c `mappend`) <$> parsePragma s
 parsePragma   :: Located String -> IO Config
 parsePragma s = withArgs [val s] $ cmdArgsRun config
 
----------------------------------------------------------------------------------------
-withCabal :: Config -> IO Config
----------------------------------------------------------------------------------------
-withCabal cfg
-  | cabalDir cfg = withCabal' cfg
-  | otherwise    = return cfg
-
-withCabal' cfg = do
-  whenLoud $ putStrLn $ "addCabalDirs: " ++ tgt
-  io <- cabalInfo tgt
-  case io of
-    Just i  -> return $ fixCabalDirs' cfg i
-    Nothing -> exitWithPanic "Cannot find .cabal information!"
-  where
-    tgt = case files cfg of
-            f:_ -> f
-            _   -> exitWithPanic "Please provide a target file to verify."
-
-
-fixCabalDirs' :: Config -> Info -> Config
-fixCabalDirs' cfg i = cfg { idirs      = nub $ idirs cfg ++ sourceDirs i ++ buildDirs i }
-                          { ghcOptions = ghcOptions cfg ++ dbOpts ++ pkOpts
-                                      ++ ["-optP-include", "-optP" ++ macroPath i]}
-   where
-     dbOpts         = ["-package-db " ++ db | db <- packageDbs  i]
-     pkOpts         = ["-package "    ++ n  | n  <- packageDeps i] -- SPEED HIT for smaller benchmarks
-
 
 
 ---------------------------------------------------------------------------------------
@@ -306,7 +271,7 @@ fixCabalDirs' cfg i = cfg { idirs      = nub $ idirs cfg ++ sourceDirs i ++ buil
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def def def def 2 def def def def def def def def
+  mempty        = Config def def def def def def def def def def def def def def def def def def 2 def def def def def def def
   mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
                          , idirs          = sortNub $ idirs c1   ++     idirs          c2
                          , fullcheck      = fullcheck c1         ||     fullcheck      c2
@@ -329,7 +294,6 @@ instance Monoid Config where
                          , smtsolver      = smtsolver c1      `mappend` smtsolver      c2
                          , shortNames     = shortNames c1        ||     shortNames     c2
                          , shortErrors    = shortErrors c1       ||     shortErrors    c2
-                         , cabalDir       = cabalDir    c1       ||     cabalDir       c2
                          , ghcOptions     = ghcOptions c1        ++     ghcOptions     c2
                          , cFiles         = cFiles c1            ++     cFiles         c2
                          , noGhcPrimSpecs = noGhcPrimSpecs c1    ||     noGhcPrimSpecs c2

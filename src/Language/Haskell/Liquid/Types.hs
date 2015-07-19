@@ -15,8 +15,6 @@
 
 -- | This module should contain all the global type definitions and basic instances.
 
-{-@ LIQUID "--cabaldir" @-}
-
 module Language.Haskell.Liquid.Types (
 
   -- * Options
@@ -277,7 +275,6 @@ data Config = Config {
   , smtsolver      :: Maybe SMTSolver  -- ^ name of smtsolver to use [default: try z3, cvc4, mathsat in order]
   , shortNames     :: Bool       -- ^ drop module qualifers from pretty-printed names.
   , shortErrors    :: Bool       -- ^ don't show subtyping errors and contexts.
-  , cabalDir       :: Bool       -- ^ find and use .cabal file to include paths to sources for imported modules
   , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
   , cFiles         :: [String]   -- ^ .c files to compile and link against (for GHC)
   , noGhcPrimSpecs :: Bool       -- ^ turn off wired-in specifications for the `ghc-prim` package
