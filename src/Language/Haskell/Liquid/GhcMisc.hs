@@ -34,7 +34,6 @@ import           ErrUtils
 import           CoreLint
 import           CoreMonad
 import           GhcMonad
-import qualified TcPluginM as TcPluginM
 
 import           Language.Fixpoint.Names      (dropModuleNames)
 import           Text.Parsec.Pos              (sourceName, sourceLine, sourceColumn, SourcePos, newPos)
@@ -474,11 +473,6 @@ idFullType id = case isDataConWorkId_maybe id of
   Nothing -> idType id
   Just dc -> dataConUserType dc
 
-tcPluginGhc :: Ghc a -> TcPluginM.TcPluginM a
-tcPluginGhc act = do
-  env <- TcPluginM.getTopEnv
-  ref <- TcPluginM.tcPluginIO $ newIORef env
-  TcPluginM.tcPluginIO $ unGhc act $ Session ref
 
 
 

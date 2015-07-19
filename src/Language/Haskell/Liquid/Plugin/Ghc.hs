@@ -5,59 +5,61 @@
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 
-module Language.Haskell.Liquid.GhcInterface (
-
-  -- * extract all information needed for verification
+module Language.Haskell.Liquid.Plugin.Ghc (
+    -- * Extract All Information Needed for Verification
     getGhcInfo
-
   ) where
+
+import GHC hiding (Target, desugarModule)
+
+import Bag (bagToList)
+import Class
+import CoreMonad (liftIO)
+import CoreSyn
+import DataCon
+import DynFlags
+import ErrUtils
+import HscTypes hiding (Target)
 import IdInfo
 import InstEnv
-import Bag (bagToList)
-import ErrUtils
-import GHC hiding (Target, desugarModule)
-import Text.PrettyPrint.HughesPJ
-import HscTypes hiding (Target)
-import CoreSyn
-
-import Class
 import Var
-import CoreMonad    (liftIO)
-import DataCon
-import qualified Control.Exception as Ex
 
-import GHC.Paths (libdir)
-import System.FilePath ( replaceExtension, normalise)
-
-import DynFlags
+import Control.Applicative hiding (empty)
 import Control.Monad (filterM, foldM, when, forM, forM_, liftM, void)
-import Control.Applicative  hiding (empty)
+
 import Data.Bifunctor
 import Data.Monoid hiding ((<>))
 import Data.List (find, nub)
 import Data.Maybe (catMaybes, maybeToList)
+
 import qualified Data.HashSet        as S
 import qualified Data.HashMap.Strict as M
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 import System.Directory (removeFile, createDirectoryIfMissing, doesFileExist)
+import System.FilePath (replaceExtension, normalise)
+
+import Text.PrettyPrint.HughesPJ
+
+import Language.Fixpoint.Files
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names
-import Language.Fixpoint.Files
 import Language.Fixpoint.Types hiding (Result, Expr)
 
-import Language.Haskell.Liquid.Types
-import Language.Haskell.Liquid.RefType
-import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.ANFTransform
+import Language.Haskell.Liquid.CmdLine (withPragmas)
+import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
+import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Spec
+import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.Visitors
-import Language.Haskell.Liquid.CmdLine (withCabal, withPragmas)
 
-import qualified Language.Haskell.Liquid.Measure as Ms
+--------------------------------------------------------------------------------
+-- Extract All Information Needed for Verification -----------------------------
+--------------------------------------------------------------------------------
 
 getGhcInfo :: Config -> GhcSpec -> FilePath -> ModSummary -> Ghc GhcInfo
 getGhcInfo cfg scope hsFile summary = do
@@ -87,12 +89,13 @@ getGhcInfo cfg scope hsFile summary = do
   setContext [IIModule $ moduleName $ ms_mod summary']
   spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds scope
 
-  let paths           = idirs cfg
-  liftIO              $ whenLoud $ putStrLn ("paths = " ++ show paths)
-  hqualFiles         <- moduleHquals modguts paths hsFile
+  hqualFiles         <- liftIO $ moduleHquals hsFile
 
   return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
 
+-- TODO: Rename, move?
+cleanFiles :: FilePath -> IO ()
+cleanFiles = createDirectoryIfMissing False . tempDirectory
 
 -- TODO: Ensure our modifications to the DynFlags meet three goals:
 --       (a) anything the module needs to compile, eg. extensions, persists;
@@ -127,7 +130,6 @@ updateDynFlags cfg summary = do
   setSessionDynFlags $ df''
   return $ summary { ms_hspp_opts = df'' }
 
-
 replaceModule :: ModuleName -> ModuleName -> ParsedModule -> ParsedModule
 replaceModule orig repl pm@(ParsedModule summary source _ _) =
   pm { pm_mod_summary =
@@ -143,6 +145,9 @@ replaceModule orig repl pm@(ParsedModule summary source _ _) =
       | mod == orig = repl
       | otherwise   = mod
 
+--------------------------------------------------------------------------------
+-- Extract Vars from Module ----------------------------------------------------
+--------------------------------------------------------------------------------
 
 classCons :: Maybe [ClsInst] -> [Id]
 classCons Nothing   = []
@@ -169,19 +174,18 @@ derivedVs cbs fd = concatMap bindersOf cbf ++ deps
         grapDep :: CoreExpr -> [Id]
         grapDep e           = freeVars S.empty e
 
-mgi_namestring = moduleNameString . moduleName . mgi_module
+importVars :: CoreProgram -> [Id]
+importVars = freeVars S.empty
 
-importVars            = freeVars S.empty
-
-definedVars           = concatMap defs
+definedVars :: CoreProgram -> [Id]
+definedVars = concatMap defs
   where
     defs (NonRec x _) = [x]
     defs (Rec xes)    = map fst xes
 
-
-------------------------------------------------------------------
--- | Extracting CoreBindings From File ---------------------------
-------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Build MGIModGuts for Module -------------------------------------------------
+--------------------------------------------------------------------------------
 
 getGhcModGuts1 :: DesugaredModule -> MGIModGuts
 getGhcModGuts1 desugared =
@@ -190,82 +194,42 @@ getGhcModGuts1 desugared =
      mod_guts = coreModule desugared
      deriv    = getDerivedDictionaries mod_guts
 
-getDerivedDictionaries cm = instEnvElts $ mg_inst_env cm
-
-cleanFiles :: FilePath -> IO ()
-cleanFiles fn
-  = do forM_ bins (tryIgnore "delete binaries" . removeFileIfExists)
-       tryIgnore "create temp directory" $ createDirectoryIfMissing False dir
-    where
-       bins = replaceExtension fn <$> [] --"hi", "o"]
-       dir  = tempDirectory fn
-
-
-removeFileIfExists f = doesFileExist f >>= (`when` removeFile f)
+getDerivedDictionaries :: ModGuts -> [ClsInst]
+getDerivedDictionaries = instEnvElts . mg_inst_env
 
 --------------------------------------------------------------------------------
--- | Extracting Qualifiers -----------------------------------------------------
+-- Extracting Qualifiers -------------------------------------------------------
 --------------------------------------------------------------------------------
 
-moduleHquals mg paths target
-  = do hqs <- liftIO   $ filterM doesFileExist [extFileName Hquals target]
-       liftIO $ whenLoud $ putStrLn $ "Reading Qualifiers From: " ++ show hqs
+-- TODO: Remove separate .hquals files
+moduleHquals :: FilePath -> IO [FilePath]
+moduleHquals target
+  = do hqs <- filterM doesFileExist [extFileName Hquals target]
+       whenLoud $ putStrLn $ "Reading Qualifiers From: " ++ show hqs
        return hqs
 
 --------------------------------------------------------------------------------
--- | Extracting Specifications (Measures + Assumptions) ------------------------
+--- Pretty Printing GhcInfo ----------------------------------------------------
 --------------------------------------------------------------------------------
 
-patErrorName    = "PatErr"
-realSpecName    = "Real"
-notRealSpecName = "NotReal"
+-- TODO: Move these elsewhere?
 
-getPatSpec paths totalitycheck
-  | totalitycheck
-  = (map (patErrorName, )) . maybeToList <$> moduleFile paths patErrorName Spec
-  | otherwise
-  = return []
+instance Show GhcInfo where
+  show = showpp
 
-getRealSpec paths freal
-  | freal
-  = (map (realSpecName, )) . maybeToList <$> moduleFile paths realSpecName Spec
-  | otherwise
-  = (map (notRealSpecName, )) . maybeToList <$> moduleFile paths notRealSpecName Spec
-
-moduleImports :: GhcMonad m => [Ext] -> [FilePath] -> [String] -> m [(String, FilePath)]
-moduleImports exts paths names
-  = liftM concat $ forM names $ \name -> do
-      map (name,) . catMaybes <$> mapM (moduleFile paths name) exts
-
-moduleFile :: GhcMonad m => [FilePath] -> String -> Ext -> m (Maybe FilePath)
-moduleFile paths name ext
-  | ext `elem` [Hs, LHs]
-  = do mg <- getModuleGraph
-       case find ((==name) . moduleNameString . ms_mod_name) mg of
-         Nothing -> liftIO $ getFileInDirs (extModuleName name ext) paths
-         Just ms -> return $ normalise <$> ml_hs_file (ms_location ms)
-  | otherwise
-  = liftIO $ getFileInDirs (extModuleName name ext) paths
-
-specIncludes :: GhcMonad m => Ext -> [FilePath] -> [FilePath] -> m [FilePath]
-specIncludes ext paths reqs
-  = do let libFile  = extFileNameR ext $ symbolString preludeName
-       let incFiles = catMaybes $ reqFile ext <$> reqs
-       liftIO $ forM (libFile : incFiles) $ \f -> do
-         mfile <- getFileInDirs f paths
-         case mfile of
-           Just file -> return file
-           Nothing -> errorstar $ "cannot find " ++ f ++ " in " ++ show paths
-
-reqFile ext s
-  | isExtFile ext s
-  = Just s
-  | otherwise
-  = Nothing
-
-
-
-
+instance PPrint GhcInfo where
+  pprint info =   (text "*************** Imports *********************")
+              $+$ (intersperse comma $ text <$> imports info)
+              $+$ (text "*************** Includes ********************")
+              $+$ (intersperse comma $ text <$> includes info)
+              $+$ (text "*************** Imported Variables **********")
+              $+$ (pprDoc $ impVars info)
+              $+$ (text "*************** Defined Variables ***********")
+              $+$ (pprDoc $ defVars info)
+              $+$ (text "*************** Specification ***************")
+              $+$ (pprint $ spec info)
+              $+$ (text "*************** Core Bindings ***************")
+              $+$ (pprint $ cbs info)
 
 instance PPrint GhcSpec where
   pprint spec =  (text "******* Target Variables ********************")
@@ -283,23 +247,6 @@ instance PPrint GhcSpec where
               $$ (text "******* Measure Specifications **************")
               $$ (pprintLongList $ meas spec)
 
-instance PPrint GhcInfo where
-  pprint info =   (text "*************** Imports *********************")
-              $+$ (intersperse comma $ text <$> imports info)
-              $+$ (text "*************** Includes ********************")
-              $+$ (intersperse comma $ text <$> includes info)
-              $+$ (text "*************** Imported Variables **********")
-              $+$ (pprDoc $ impVars info)
-              $+$ (text "*************** Defined Variables ***********")
-              $+$ (pprDoc $ defVars info)
-              $+$ (text "*************** Specification ***************")
-              $+$ (pprint $ spec info)
-              $+$ (text "*************** Core Bindings ***************")
-              $+$ (pprint $ cbs info)
-
-instance Show GhcInfo where
-  show = showpp
-
 instance PPrint [CoreBind] where
   pprint = pprDoc . tidyCBs
 
@@ -307,14 +254,3 @@ instance PPrint TargetVars where
   pprint AllVars   = text "All Variables"
   pprint (Only vs) = text "Only Variables: " <+> pprint vs
 
-------------------------------------------------------------------------
--- Dealing With Errors -------------------------------------------------
-------------------------------------------------------------------------
--- | Convert a GHC error into one of ours
-instance Result SourceError where
-  result = (`Crash` "Invalid Source")
-         . concatMap errMsgErrors
-         . bagToList
-         . srcErrorMessages
-
-errMsgErrors e = [ ErrGhc (errMsgSpan e) (pprint e)]

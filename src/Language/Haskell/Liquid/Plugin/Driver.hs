@@ -4,12 +4,11 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Language.Haskell.Liquid.Driver (
+module Language.Haskell.Liquid.Plugin.Driver (
     processModule
   ) where
 
 import GHC
-import GHC.Paths
 
 import CoreSyn
 import Digraph
@@ -59,7 +58,6 @@ import Language.Haskell.Liquid.Constraint.Generate
 import Language.Haskell.Liquid.Constraint.ToFixpoint
 import Language.Haskell.Liquid.Constraint.Types
 import Language.Haskell.Liquid.Errors
-import Language.Haskell.Liquid.GhcInterface
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Iface
 import Language.Haskell.Liquid.Misc
@@ -70,15 +68,18 @@ import Language.Haskell.Liquid.Types
 
 import qualified Language.Haskell.Liquid.DiffCheck as DC
 
+import Language.Haskell.Liquid.Plugin.Ghc
+import Language.Haskell.Liquid.Plugin.Misc
+
 --------------------------------------------------------------------------------
---------------------------------------------------------------------------------
+-- Run a Module Through the LiquidHaskell Pipeline -----------------------------
 --------------------------------------------------------------------------------
 
 processModule :: Config -> IfaceCache -> ModSummary -> TcPluginM ()
 processModule cfg cache summary@(ModSummary {..}) = do
   tcPluginIO $ putStrLn $ "== " ++ showPpr (moduleName ms_mod) ++ " =="
 
-  (pkgImports, homeImports) <- tcPluginGhc $ getAllImports summary
+  (pkgImports, homeImports) <- getAllImports summary
   pkgIfaceData              <- mapM (getPkgIface cache cfg) pkgImports
   homeIfaceData             <- tcPluginIO $ mapM (getHomeIface cache) homeImports
 
@@ -111,7 +112,7 @@ processModule cfg cache summary@(ModSummary {..}) = do
             Crash        _ err -> panic  $ "LiquidHaskell crash: "         ++ err
             UnknownError   err -> panic  $ "LiquidHaskell unknwon error: " ++ err
 
-    isSig <- unsafeTcPluginTcM tcIsHsBootOrSig
+    isSig <- tcPluginIsHsBootOrSig
 
     if noVerify cfg || isSig then save else verify
 
@@ -119,20 +120,20 @@ processModule cfg cache summary@(ModSummary {..}) = do
 -- Extract Full Module Dependencies --------------------------------------------
 --------------------------------------------------------------------------------
 
-getAllImports :: ModSummary -> Ghc ([Module], [Module])
+getAllImports :: ModSummary -> TcPluginM ([Module], [Module])
 getAllImports summary = do
   (pkgImps, homeImps) <- getDeclImports summary
   return ( nub $ pkgImps ++ primImports
          , homeImps
          )
 
-getDeclImports :: ModSummary -> Ghc ([Module], [Module])
+getDeclImports :: ModSummary -> TcPluginM ([Module], [Module])
 getDeclImports summary = do
-  homeModules <- (mkModuleSet . map ms_mod) <$> getModuleGraph
+  homeModules <- tcPluginHomeModules
   partitionEithers <$> mapM (ofDecl homeModules) (ms_textual_imps summary)
   where
     ofDecl homeModules (unLoc -> decl) = do
-      mod <- findModule (unLoc $ ideclName decl) (ideclPkgQual decl)
+      mod <- tcPluginFindModule (unLoc $ ideclName decl) (ideclPkgQual decl)
       return $ if mod `elemModuleSet` homeModules then Right mod else Left mod
 
 primImports :: [Module]
