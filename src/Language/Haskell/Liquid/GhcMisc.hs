@@ -465,14 +465,12 @@ tyConTyVarsDef c | TC.isPromotedDataCon c = error ("TyVars on " ++ show c) -- DC
 tyConTyVarsDef c = TC.tyConTyVars c 
 
 tyThingId_maybe :: TyThing -> Maybe Id
-tyThingId_maybe (AnId x)                   = Just x
-tyThingId_maybe (AConLike (RealDataCon x)) = Just $ DC.dataConWorkId x
-tyThingId_maybe _                          = Nothing
+tyThingId_maybe (AnId x) = Just x
+tyThingId_maybe _        = Nothing
 
-idFullType :: Id -> Kind
-idFullType id = case isDataConWorkId_maybe id of
-  Nothing -> idType id
-  Just dc -> dataConUserType dc
+tyThingDataCon_maybe :: TyThing -> Maybe DataCon
+tyThingDataCon_maybe (AConLike (RealDataCon x)) = Just x
+tyThingDataCon_maybe _                          = Nothing
 
 
 

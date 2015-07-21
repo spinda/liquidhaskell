@@ -6,10 +6,12 @@
 module Language.Haskell.Liquid.Iface.Types (
     IfaceData(..)
   , IfaceSpec(..)
+
   , IRType
   , ISort
   , IPVar
   , IfaceType
+  , IfaceMeasure
   , ITyCon(..)
 
   , emptyIfaceData
@@ -46,7 +48,7 @@ data IfaceData spec = ID { ifaceModule       :: !Module
 data IfaceSpec = IS { ifaceTySigs     :: ![(Name, Located IfaceType)]
                     , ifaceAsmSigs    :: ![(Name, Located IfaceType)]
                     , ifaceCtors      :: ![(Name, Located IfaceType)]
-                    , ifaceMeas       :: ![(Symbol, Located IfaceType)]
+                    , ifaceMeas       :: ![(Name, IfaceMeasure)]
                     , ifaceInvariants :: ![Located IfaceType]
                     , ifaceIAliases   :: ![(Located IfaceType, Located IfaceType)]
                     , ifaceFreeSyms   :: ![(Symbol, Name)]
@@ -59,10 +61,11 @@ data IfaceSpec = IS { ifaceTySigs     :: ![(Name, Located IfaceType)]
                     }
 
 
-type IRType    = RType ITyCon IfLclName
-type ISort     = IRType ()
-type IPVar     = PVar ISort
-type IfaceType = IRType RReft
+type IRType       = RType ITyCon IfLclName
+type ISort        = IRType ()
+type IPVar        = PVar ISort
+type IfaceType    = IRType RReft
+type IfaceMeasure = Measure IfaceType Name
 
 data ITyCon = ITyCon
   { itc_tc    :: IfaceTyCon    -- ^ GHC Type Constructor

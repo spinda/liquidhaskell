@@ -36,7 +36,6 @@ import TypeRep
 import TysWiredIn
 import Unique
 import Var
-import VarEnv
 
 import qualified Outputable as Out
 
@@ -72,17 +71,24 @@ data ReifyState = RS { rs_freshInt   :: Integer
                      , rs_wiredIns   :: WiredIns
                      , rs_rtEnv      :: RTEnv
                      , rs_exprParams :: NameEnv [Symbol]
-                     , rs_inlines    :: VarEnv TInline
+                     , rs_inlines    :: M.HashMap Var TInline
+                     , rs_meas       :: M.HashMap Var SpecMeasure
                      , rs_freeSyms   :: M.HashMap Symbol Var
                      }
 
 
-runReifyM :: ReifyM a -> WiredIns -> RTEnv -> NameEnv [Symbol] -> VarEnv TInline -> Ghc (a, [(Symbol, Var)])
-runReifyM act wiredIns rtEnv exprParams inlines = do
+runReifyM :: ReifyM a
+          -> WiredIns
+          -> RTEnv
+          -> NameEnv [Symbol]
+          -> M.HashMap Var TInline
+          -> M.HashMap Var SpecMeasure
+          -> Ghc (a, [(Symbol, Var)])
+runReifyM act wiredIns rtEnv exprParams inlines meas = do
   (x, s) <- runStateT (unReifyM act) initState
   return (x, M.toList $ rs_freeSyms s)
   where
-    initState   = RS 0 wiredIns rtEnv exprParams' inlines mempty
+    initState   = RS 0 wiredIns rtEnv exprParams' inlines meas mempty
     exprParams' = plusNameEnv exprParams $
       mkNameEnv $ map (getName *** rtEArgs) $ M.toList rtEnv
 
@@ -107,18 +113,27 @@ lookupExprParams tc = ReifyM $ do
   env <- gets rs_exprParams
   return $ fromMaybe [] $ lookupNameEnv env $ getName tc
 
-lookupInline :: Located Symbol -> ReifyM (Maybe TInline)
+lookupInline :: Symbol -> ReifyM (Maybe TInline)
 lookupInline s = do
-  names  <- liftGhc $ ghandle catchNotInScope $ parseName $ symbolString $ val s
-  things <- liftGhc $ mapMaybeM lookupName names
-  let var = listToMaybe $ mapMaybe findVar things
+  var <- liftGhc $ lookupVar s
   case var of
     Nothing  -> return Nothing
-    Just key -> ReifyM $ gets (flip lookupVarEnv key . rs_inlines)
-  where
-    findVar (AnId var) = Just var
-    findVar _          = Nothing
+    Just key -> ReifyM $ gets (M.lookup key . rs_inlines)
 
+lookupMeasure :: Symbol -> ReifyM (Maybe SpecMeasure)
+lookupMeasure s = do
+  var <- liftGhc $ lookupVar s
+  case var of
+    Nothing  -> return Nothing
+    Just key -> ReifyM $ gets (M.lookup key . rs_meas)
+
+-- TODO: Move elsewhere?
+lookupVar :: Symbol -> Ghc (Maybe Var)
+lookupVar s = do
+  names  <- ghandle catchNotInScope $ parseName $ symbolString s
+  things <- mapMaybeM lookupName names
+  return $ listToMaybe $ mapMaybe tyThingId_maybe things
+  where
     catchNotInScope :: SourceError -> Ghc [Name]
     catchNotInScope _ = return []
 
@@ -214,7 +229,7 @@ reifyRefa = fmap Refa . reifyPred
 --------------------------------------------------------------------------------
 
 reifyPred :: Type -> ReifyM Pred
-reifyPred = applyInlines <=< reifyPred'
+reifyPred = resolvePred <=< reifyPred'
 
 reifyPred' :: Type -> ReifyM Pred
 reifyPred' ty = (`go` ty) =<< getWiredIns
@@ -241,45 +256,6 @@ reifyPred' ty = (`go` ty) =<< getWiredIns
       | tc == pc_PTop wis, [] <- as =
         return PTop
     go _ _ = malformed "predicate" ty
-
-
-applyInlines :: Pred -> ReifyM Pred
-applyInlines (PBexp e@(EApp f es)) = do
-  inline <- lookupInline f
-  case inline of
-    Just (TI args (Left body)) -> do
-      unless (length args == length es) (invalidInlineArgs f args es)
-      es' <- mapM applyInlines' es
-      return $ subst (mkSubst $ zip args es') body
-    _ ->
-      PBexp <$> applyInlines' e
-applyInlines (PBexp e    ) = PBexp <$> applyInlines' e
-applyInlines (PAnd ps    ) = PAnd <$> mapM applyInlines ps
-applyInlines (POr  ps    ) = POr <$> mapM applyInlines ps
-applyInlines (PNot p     ) = PNot <$> applyInlines p
-applyInlines (PImp x y   ) = PImp <$> applyInlines x <*> applyInlines y
-applyInlines (PIff x y   ) = PIff <$> applyInlines x <*> applyInlines y
-applyInlines (PAtom b x y) = PAtom b <$> applyInlines' x <*> applyInlines' y
-applyInlines (PAll xss p ) = PAll xss <$> applyInlines p
-applyInlines p             = return p
-
-applyInlines' :: Expr -> ReifyM Expr
-applyInlines' (EApp f es) = do
-  inline <- lookupInline f
-  es'    <- mapM applyInlines' es
-  case inline of
-    Nothing ->
-      return $ EApp f es'
-    Just (TI _ (Left _)) ->
-      liftGhc $ panic "TODO"
-    Just (TI args (Right body)) -> do
-      unless (length args == length es) (invalidInlineArgs f args es)
-      return $ subst (mkSubst $ zip args es') body
-applyInlines' (ENeg e    ) = ENeg <$> applyInlines' e
-applyInlines' (EBin b x y) = EBin b <$> applyInlines' x <*> applyInlines' y
-applyInlines' (EIte p x y) = EIte <$> applyInlines p <*> applyInlines' x <*> applyInlines' y
-applyInlines' (ECst e s  ) = (`ECst` s) <$> applyInlines' e
-applyInlines' e            = return e
 
 --------------------------------------------------------------------------------
 -- Reify Expr ------------------------------------------------------------------
@@ -351,6 +327,66 @@ reifyBop ty = (`go` ty) =<< getWiredIns
       | tc == pc_Div   wis = return Div
       | tc == pc_Mod   wis = return Mod
     go _ _ = malformed "binary operator" ty
+
+--------------------------------------------------------------------------------
+-- Resolve Pred & Expr Applications --------------------------------------------
+--------------------------------------------------------------------------------
+
+-- TODO: I (Michael) have a few lingering gripes with this code.
+--       (a) It could be much cleaner if Pred and Expr were combined.
+--       (b) The separation between measures and inlines also makes it a bit
+--           strange. Really, we should have one "lifted into logic" mechanism,
+--           and decide whether something can be inlined based on the properties
+--           of the function.
+--       (c) This should really be handled at the Template Haskell level, but
+--           the setup we would need for that isn't possible with GHC 7.10.
+--           We should really be using an annotation and Core2Core plugin
+--           system instead of a TC plugin and this reification step. Maybe for
+--           GHC 7.12, if we can land the right improvements before its
+--           release.
+
+resolvePred :: Pred -> ReifyM Pred
+resolvePred (PBexp e@(EApp f es)) = do
+  inline <- lookupInline $ val f
+  case inline of
+    Just (TI args (Left body)) -> do
+      unless (length args == length es) (invalidInlineArgs f args es)
+      es' <- mapM resolveExpr es
+      return $ subst (mkSubst $ zip args es') body
+    _ ->
+      PBexp <$> resolveExpr e
+resolvePred (PBexp e    ) = PBexp <$> resolveExpr e
+resolvePred (PAnd ps    ) = PAnd <$> mapM resolvePred ps
+resolvePred (POr  ps    ) = POr <$> mapM resolvePred ps
+resolvePred (PNot p     ) = PNot <$> resolvePred p
+resolvePred (PImp x y   ) = PImp <$> resolvePred x <*> resolvePred y
+resolvePred (PIff x y   ) = PIff <$> resolvePred x <*> resolvePred y
+resolvePred (PAtom b x y) = PAtom b <$> resolveExpr x <*> resolveExpr y
+resolvePred (PAll xss p ) = PAll xss <$> resolvePred p
+resolvePred p             = return p
+
+resolveExpr :: Expr -> ReifyM Expr
+resolveExpr (EApp f es) = do
+  es'    <- mapM resolveExpr es
+  inline <- lookupInline $ val f
+  case inline of
+    Nothing -> do
+      measure <- lookupMeasure $ val f
+      return $ case measure of
+        Nothing ->
+          EApp f es'
+        Just (M { name = name }) ->
+          EApp (const (val name) <$> f) es'
+    Just (TI _ (Left _)) ->
+      liftGhc $ panic "TODO"
+    Just (TI args (Right body)) -> do
+      unless (length args == length es) (invalidInlineArgs f args es)
+      return $ subst (mkSubst $ zip args es') body
+resolveExpr (ENeg e    ) = ENeg <$> resolveExpr e
+resolveExpr (EBin b x y) = EBin b <$> resolveExpr x <*> resolveExpr y
+resolveExpr (EIte p x y) = EIte <$> resolvePred p <*> resolveExpr x <*> resolveExpr y
+resolveExpr (ECst e s  ) = (`ECst` s) <$> resolveExpr e
+resolveExpr e            = return e
 
 --------------------------------------------------------------------------------
 -- Reify Data Constructor ------------------------------------------------------

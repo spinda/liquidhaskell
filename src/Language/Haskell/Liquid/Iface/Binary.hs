@@ -362,6 +362,13 @@ instance Binary Oblig where
       2 -> OCons
       _ -> error $ "Invalid Oblig id " ++ show h
 
+instance Binary IfaceMeasure where
+  put_ bh (M name sort defs) = do
+    put_ bh name
+    put_ bh sort
+    put_ bh defs
+  get bh = M <$> get bh <*> get bh <*> get bh
+
 instance Binary ITyCon where
   put_ bh (ITyCon tc pv info) = do
     put_ bh tc

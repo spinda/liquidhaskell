@@ -10,11 +10,13 @@ module Language.Haskell.Liquid.Spec.Extract (
   , extractExprParams
   , extractTcEmbeds
   , extractInlines
+  , extractMeasures
 
     -- * Extraction Functions in ReifyM
   , ReifyM
   , runReifyM
   , extractTySigs
+  , extractCtors
   , extractTySyns
   ) where
 
@@ -48,6 +50,7 @@ import Language.Fixpoint.Types
 
 import Language.Haskell.Liquid.CoreToLogic
 import Language.Haskell.Liquid.GhcMisc
+import Language.Haskell.Liquid.Measure
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Types
 
@@ -59,6 +62,7 @@ import Language.Haskell.Liquid.Spec.Reify
 -- ExtractM Monad --------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+-- TOOD: Think about merging this with ReifyM into one shared SpecM
 newtype ExtractM a = ExtractM { unExtractM :: ReaderT ExtractEnv Ghc a }
                      deriving (Functor, Applicative, Monad)
 
@@ -76,7 +80,7 @@ buildCoreEnv :: [CoreBind] -> VarEnv CoreExpr
 buildCoreEnv = mkVarEnv . concatMap go
   where
     go (NonRec v def) = [(v, def)]
-    go (Rec xer)      = xer
+    go (Rec xes)      = xes
 
 
 liftGhc :: Ghc a -> ExtractM a
@@ -112,16 +116,29 @@ extractTcEmbeds = M.fromList <$> (mapM go =<< annotationsOfType)
       Just (ATyCon tc) <- liftGhc $ lookupName name
       return (tc, convertFTycon $ convertLocated ftc)
 
-extractInlines :: ExtractM (VarEnv TInline)
-extractInlines = mkVarEnv <$> (mapM go =<< annotationsOfType)
+extractInlines :: ExtractM (M.HashMap Var TInline)
+extractInlines = M.fromList <$> (mapM go =<< annotationsOfType)
   where
     go (name, RT.IsInline span) = do
       Just (AnId var) <- liftGhc $ lookupName name
-      def             <- fromJust <$> lookupCoreBind var
+      Just bind       <- lookupCoreBind var
       let sym          = convertLocated' span $ symbol $ getName var
-      case runToLogic mempty $ coreToFun sym var def of
+      case runToLogic mempty $ coreToFun sym var bind of
         Left (xs, e) -> return (var, TI (symbol <$> xs) e)
-        Right err    -> liftGhc $ panic err
+        Right err    -> liftGhc $ pgmError err
+
+-- TODO: Expand inlines in measures
+extractMeasures :: ExtractM (M.HashMap Var SpecMeasure)
+extractMeasures = M.fromList <$> (mapM go =<< annotationsOfType)
+  where
+    go (name, RT.IsMeasure span) = do
+      Just (AnId var) <- liftGhc $ lookupName name
+      Just bind       <- lookupCoreBind var
+      let name         = convertLocated' span $ varSymbol var
+      let sort         = logicType $ varType var
+      case runToLogic mempty $ coreToDef name var bind of
+        Left  defs -> return (var, M name sort $ dataConTypes defs)
+        Right err  -> liftGhc $ pgmError err
 
 
 convertFTycon :: Located RT.FTycon -> FTycon
@@ -150,10 +167,15 @@ convertPos (RT.Pos name line col) = newPos name line col
 --------------------------------------------------------------------------------
 
 extractTySigs :: TypecheckedModule -> ReifyM [(Var, SpecType)]
-extractTySigs mod = mapM (\id -> (id, ) <$> reifyRTy (idFullType id)) ids
+extractTySigs mod = mapM (\id -> (id, ) <$> reifyRTy (idType id)) ids
   where
     ids      = nub $ topLevel ++ idsFromSource (tm_typechecked_source mod)
     topLevel = mapMaybe tyThingId_maybe $ typeEnvElts $ tcg_type_env $ fst $ tm_internals_ mod
+
+extractCtors :: TypecheckedModule -> ReifyM [(Id, SpecType)]
+extractCtors mod = concatMapM (\dc -> mkDataConIdsTy dc <$> reifyRTy (dataConUserType dc)) dcs
+  where
+    dcs = mapMaybe tyThingDataCon_maybe $ typeEnvElts $ tcg_type_env $ fst $ tm_internals_ mod
 
 extractTySyns :: TypecheckedModule -> ReifyM RTEnv
 extractTySyns mod = M.fromList <$> mapM go tysyns
@@ -174,8 +196,11 @@ extractTySyns mod = M.fromList <$> mapM go tysyns
 -- Collect Ids from Haskell AST ------------------------------------------------
 --------------------------------------------------------------------------------
 
+-- TODO: This may be duplicating information that we already gather in
+--       Plugin.Ghc
+
 idsFromSource :: TypecheckedSource -> [Id]
-idsFromSource = idsFromBinds
+idsFromSource = filter (not . isDataConId) . idsFromBinds
 
 idsFromBinds :: LHsBinds Id -> [Id]
 idsFromBinds = concatMap idsFromBind . bagToList

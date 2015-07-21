@@ -44,7 +44,7 @@ import            System.Directory                (copyFile, doesFileExist)
 import            Language.Fixpoint.Misc          (mkGraph)
 import            Language.Fixpoint.Types         (FixResult (..), Located (..))
 import            Language.Fixpoint.Files
-import            Language.Haskell.Liquid.Types   (SpecType, GhcSpec (..), AnnInfo (..), DataConP (..), Error, TError (..), Output (..))
+import            Language.Haskell.Liquid.Types   (SpecType, GhcSpec (..), AnnInfo (..), DataConP (..), Measure (..), Error, TError (..), Output (..))
 import            Language.Haskell.Liquid.GhcMisc
 import            Language.Haskell.Liquid.Visitors
 import            Language.Haskell.Liquid.Errors   ()
@@ -148,7 +148,7 @@ sigVars ls sp = M.fromList $ filter (ok . snd) $ specSigs sp
 globalDiff :: [Int] -> GhcSpec -> Bool
 globalDiff ls sp = measDiff || invsDiff || dconsDiff
   where
-    measDiff  = any (isDiff ls) (snd  <$> meas sp)
+    measDiff  = any (isDiff ls) (name <$> M.elems (meas sp))
     invsDiff  = any (isDiff ls) (invariants   sp)
     dconsDiff = any (isDiff ls) (dloc . snd <$> dconsP sp)
     dloc dc   = Loc (dc_loc dc) (dc_locE dc) ()
