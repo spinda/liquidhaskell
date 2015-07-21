@@ -109,11 +109,11 @@ updateDynFlags summary = do
   df@DynFlags{..} <- getSessionDynFlags
   let df' = df { pluginModNames     = filter (/= mkModuleName "LiquidHaskell.Plugin") pluginModNames
                , ghcMode            = CompManager
-               , ghcLink            = NoLink
+               , ghcLink            = LinkInMemory
                , optLevel           = 0
                , simplPhases        = 2
                , maxSimplIterations = 4
-               , hscTarget          = HscNothing
+               , hscTarget          = HscInterpreted
                , profAuto           = ProfAutoCalls
                -- prevent GHC from printing anything
                , log_action         = \_ _ _ _ _ -> return ()
@@ -242,7 +242,7 @@ instance PPrint GhcSpec where
               $$ (text "******* DataCon Specifications (Measure) ****")
               $$ (pprintLongList $ ctors spec)
               $$ (text "******* Measure Specifications **************")
-              $$ (pprintLongList $ meas spec)
+              $$ (pprintLongList $ M.toList $ meas spec)
 
 instance PPrint [CoreBind] where
   pprint = pprDoc . tidyCBs

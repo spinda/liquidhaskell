@@ -63,6 +63,7 @@ import Language.Haskell.Liquid.Iface
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.PrettyPrint
+import Language.Haskell.Liquid.Spec (postProcess)
 import Language.Haskell.Liquid.TransformRec
 import Language.Haskell.Liquid.Types
 
@@ -99,7 +100,7 @@ processModule cfg cache summary@(ModSummary {..}) = do
     ghcInfo <- tcPluginGhc $ getGhcInfo cfg extern hsFile summary
 
     let ghcSpec   = spec ghcInfo
-    let fullSpec  = (mappend extern ghcSpec) { exports = exports ghcSpec }
+    let fullSpec  = postProcess $ (mappend extern ghcSpec) { exports = exports ghcSpec }
     let fullInfo  = ghcInfo { spec = fullSpec }
     let ifaceData = ID ms_mod fingerprint fullSpec
 

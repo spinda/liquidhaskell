@@ -86,7 +86,7 @@ instance Iface GhcSpec IfaceSpec where
     IS { ifaceTySigs     = ofTySig <$> filter isExported tySigs
        , ifaceAsmSigs    = ofTySig <$> filter isExported asmSigs
        , ifaceCtors      = ofTySig <$> filter isExported ctors
-       , ifaceMeas       = second (fmap toIface) <$> meas
+       , ifaceMeas       = ofMeasure <$> filter isExported (M.toList meas)
        , ifaceInvariants = fmap toIface <$> invariants
        , ifaceIAliases   = ofIAlias <$> ialiases
        , ifaceFreeSyms   = second getName <$> freeSyms
@@ -94,13 +94,14 @@ instance Iface GhcSpec IfaceSpec where
        , ifaceQualifiers = qualifiers
        , ifaceTyConEnv   = ofTyConEnv <$> M.toList tyconEnv
        , ifaceRTEnv      = ofRTAlias <$> M.toList rtEnv
-       , ifaceTInlines   = first getName <$> filter isExported tinlines
+       , ifaceTInlines   = first getName <$> filter isExported (M.toList tinlines)
        , ifaceExports    = nameSetElems exports
        }
     where
       isExported (id, _) =
         isDataConWorkId id || elemNameSet (getName id) exports
       ofTySig    = getName      *** fmap toIface
+      ofMeasure  = getName      *** toIface
       ofIAlias   = fmap toIface *** fmap toIface
       ofTyConEnv = toIfaceTyCon *** toIface
       ofRTAlias  = toIfaceTyCon *** toIface
@@ -109,14 +110,14 @@ instance Iface GhcSpec IfaceSpec where
     tySigs     <- mapM ofTySig ifaceTySigs
     asmSigs    <- mapM ofTySig ifaceAsmSigs
     ctors      <- mapM ofTySig ifaceCtors
-    meas       <- mapM (secondM (traverse fromIface)) ifaceMeas
+    meas       <- M.fromList <$> mapM ofMeasure ifaceMeas
     invariants <- mapM (traverse fromIface) ifaceInvariants
     ialiases   <- mapM ofIAlias ifaceIAliases
     freeSyms   <- mapM (secondM lookupIfaceVar) ifaceFreeSyms
     tcEmbeds   <- M.fromList <$> mapM (firstM tcIfaceTyCon) ifaceTcEmbeds
     tyconEnv   <- M.fromList <$> mapM ofTyConEnv ifaceTyConEnv
     rtEnv      <- M.fromList <$> mapM ofRTAlias ifaceRTEnv
-    tinlines   <- mapM (firstM lookupIfaceVar) ifaceTInlines
+    tinlines   <- M.fromList <$> mapM (firstM lookupIfaceVar) ifaceTInlines
     return $ mempty
       { tySigs     = tySigs
       , asmSigs    = asmSigs
@@ -134,6 +135,7 @@ instance Iface GhcSpec IfaceSpec where
       }
     where
       ofTySig    (v, t) = (,) <$> lookupIfaceVar v     <*> traverse fromIface t
+      ofMeasure  (v, m) = (,) <$> lookupIfaceVar v     <*> fromIface m
       ofIAlias   (x, y) = (,) <$> traverse fromIface x <*> traverse fromIface y
       ofTyConEnv (t, i) = (,) <$> tcIfaceTyCon t       <*> fromIface i
       ofRTAlias  (t, a) = (,) <$> tcIfaceTyCon t       <*> fromIface a
@@ -176,6 +178,14 @@ instance Iface (RRType r) (IRType r) where
     RRTy <$> mapM (secondM fromIface) env <*> pure r <*> pure o <*> fromIface ty
   fromIface (RHole r) =
     return $ RHole r
+
+instance Iface SpecMeasure IfaceMeasure where
+  toIface M{..} =
+    M name (toIface sort) (map (getName *** toIface) defs)
+  fromIface M{..} =
+    M name <$> fromIface sort <*> mapM ofDef defs
+    where
+      ofDef (dc, ty) = (,) <$> lookupIfaceVar dc <*> fromIface ty
 
 instance Iface RTyCon ITyCon where
   toIface rtc =
@@ -233,15 +243,17 @@ instance Iface (RTAlias RTyVar SpecType) (RTAlias IfLclName IfaceType) where
 -- Utiliy Functions ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-lookupIfaceVar :: Name -> IfL Var
-lookupIfaceVar name = do
+lookupIfaceTyThing :: Name -> IfL TyThing
+lookupIfaceTyThing name = do
   hscEnv    <- env_top <$> getEnv
   (msgs, m) <- liftIO $ tcRnLookupName hscEnv name
   case m of
     Nothing    -> liftIO $ throwIO $ mkSrcErr $ snd msgs
-    Just thing -> return $ ofThing thing
+    Just thing -> return thing
+
+lookupIfaceVar :: Name -> IfL Var
+lookupIfaceVar = fmap ofThing . lookupIfaceTyThing
   where
-    ofThing (AnId x)                   = x
-    ofThing (AConLike (RealDataCon x)) = dataConWorkId x
-    ofThing thing                      = error $ "Bad result in lookupIfaceVar: " ++ showPpr thing
+    ofThing (AnId x) = x
+    ofThing thing    = error $ "Bad result in lookupIfaceVar: " ++ showPpr thing
 

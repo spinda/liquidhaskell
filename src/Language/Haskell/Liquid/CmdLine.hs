@@ -196,7 +196,7 @@ copyright = "LiquidHaskell Copyright 2009-15 Regents of the University of Califo
 ---------------------------------------------------------------------------------------
 withPragmas :: Config -> FilePath -> [Located String] -> IO Config
 ---------------------------------------------------------------------------------------
-withPragmas cfg fp ps = foldM withPragma cfg ps
+withPragmas cfg _fp ps = foldM withPragma cfg ps
 
 withPragma :: Config -> Located String -> IO Config
 withPragma c s = (c `mappend`) <$> parsePragma s

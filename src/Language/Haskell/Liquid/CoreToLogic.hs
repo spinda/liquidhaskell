@@ -5,6 +5,12 @@
 {-# LANGUAGE TupleSections          #-}
 {-# LANGUAGE EmptyDataDecls         #-}
 
+-- TODO: This is a hot-spot for generating user-unfriendly error messages. It
+--       could use some cleaning up in this regard. (Perhaps we should be
+--       lifting from TypecheckedSource instead of CoreExpr?) There's also a
+--       lot of logic here that wouldn't be necessary if Pred and Expr were
+--       merged.
+
 module Language.Haskell.Liquid.CoreToLogic ( 
 
   coreToDef , coreToFun
@@ -66,26 +72,22 @@ CASE1: measure f@logic :: X -> Prop <=> f@haskell :: x:X -> {v:Bool | (Prop v) <
 CASE2: measure f@logic :: X -> Y    <=> f@haskell :: x:X -> {v:Y    | v = (f@logic x)} 
 -}
 
-strengthenResult :: Var -> SpecType
-strengthenResult v
+strengthenResult :: Var -> SpecType -> SpecType
+strengthenResult v t
   | isBool res
   = -- traceShow ("Type for " ++ showPpr v ++ "\t OF \t" ++ show (ty_binds rep)) $  
-    fromRTypeRep $ rep{ty_res = res `strengthen` r, ty_binds = xs}
+    fromRTypeRep $ rep{ty_res = res `strengthen` r}
   | otherwise
   = -- traceShow ("Type for " ++ showPpr v ++ "\t OF \t" ++ show (ty_binds rep)) $ 
-    fromRTypeRep $ rep{ty_res = res `strengthen` r', ty_binds = xs}
+    fromRTypeRep $ rep{ty_res = res `strengthen` r'}
   where rep = toRTypeRep t
         res = ty_res rep
-        xs  = intSymbol (symbol ("x" :: String)) <$> [1..length $ ty_binds rep]
         r'  = U (exprReft (EApp f (mkA <$> vxs)))         mempty mempty
         r   = U (propReft (PBexp $ EApp f (mkA <$> vxs))) mempty mempty
-        vxs = dropWhile (isClassType.snd) $ zip xs (ty_args rep)
-        f   = dummyLoc $ dropModuleNames $ simplesymbol v
-        t   = (ofType $ varType v) :: SpecType
+        vxs = dropWhile (isClassType.snd) $ zip (ty_binds rep) (ty_args rep)
+        f   = dummyLoc $ varSymbol v
         mkA = \(x, _) -> EVar x -- if isBool t then EApp (dummyLoc propConName) [(EVar x)] else EVar x
 
-
-simplesymbol = symbol . getName
 
 newtype LogicM a = LM {runM :: LState -> Either a String}
 
@@ -123,7 +125,7 @@ getState = LM $ Left
 runToLogic lmap (LM m) 
   = m $ LState {symbolMap = lmap}
 
-coreToDef :: Reftable r => LocSymbol -> Var -> C.CoreExpr ->  LogicM [Def (RRType r) DataCon]
+coreToDef :: LocSymbol -> Var -> C.CoreExpr -> LogicM [Def]
 coreToDef x _ e = go [] $ inline_preds $ simplify e
   where
     go args (C.Lam  x e) = go (x:args) e
@@ -248,7 +250,7 @@ toLogicApp e
   =  do let (f, es) = splitArgs e
         args       <- mapM coreToLogic es
         lmap       <- symbolMap <$> getState
-        def         <- (`EApp` args) <$> tosymbol f
+        def         <- (`EApp` args) <$> tosymbol0 f
         (\x -> makeApp def lmap x args) <$> tosymbol' f
 
 makeApp :: Expr -> LogicMap -> Located Symbol-> [Expr] -> Expr
@@ -298,6 +300,11 @@ splitArgs e = (f, reverse es)
 tosymbol (C.Var c) | isDataConId  c = return $ dummyLoc $ symbol c 
 tosymbol (C.Var x) = return $ dummyLoc $ simpleSymbolVar x
 tosymbol  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t cannot be applied")
+
+-- TODO: Temporary hack for measures
+tosymbol0 (C.Var c) | isDataConId  c = return $ dummyLoc $ symbol c 
+tosymbol0 (C.Var x) = return $ dummyLoc $ varSymbol x
+tosymbol0  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t cannot be applied")
 
 tosymbol' (C.Var x) = return $ dummyLoc $ simpleSymbolVar' x
 tosymbol'  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t cannot be applied")

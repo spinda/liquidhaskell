@@ -44,6 +44,7 @@ import Text.PrettyPrint.HughesPJ hiding (first)
 import Control.Monad.State
 
 import Control.Applicative      ((<$>), (<*>))
+import Control.Arrow            ((&&&))
 
 import Data.Monoid              (mconcat, mempty, mappend)
 import Data.Maybe               (fromMaybe, catMaybes, fromJust, isJust)
@@ -230,9 +231,9 @@ predsUnify sp = second (addTyConInfo tce tyi) -- needed to eliminate some @RProp
 
 measEnv sp xts cbs lts asms hs autosizes
   = CGE { loc   = noSrcSpan
-        , renv  = fromListREnv $ second val <$> meas sp
+        , renv  = fromListREnv $ ((val . name) &&& sort) <$> M.elems (meas sp)
         , syenv = F.fromListSEnv $ freeSyms sp
-        , fenv  = initFEnv $ lts ++ (second (rTypeSort tce . val) <$> meas sp)
+        , fenv  = initFEnv $ lts ++ (((val . name) &&& (rTypeSort tce . sort)) <$> M.elems (meas sp))
         , denv  = dicts sp
         , recs  = S.empty
         , invs  = mkRTyConInv    $ (invariants sp ++ autosizes)

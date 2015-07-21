@@ -152,7 +152,7 @@ uTop r          = U r mempty mempty
 
 instance Monoid Config => Monoid GhcSpec where
   mempty =
-    SP [] [] [] [] [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty [] mempty mempty mempty mempty
+    SP [] [] [] mempty [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty mempty mempty mempty mempty
   mappend sp1 sp2 =
     SP { tySigs     = mappend (tySigs     sp1) (tySigs     sp2)
        , asmSigs    = mappend (asmSigs    sp1) (asmSigs    sp2)
@@ -172,7 +172,6 @@ instance Monoid Config => Monoid GhcSpec where
        , lazy       = mappend (lazy       sp1) (lazy       sp2)
        , autosize   = mappend (autosize   sp1) (autosize   sp2)
        , config     = mappend (config     sp1) (config     sp2)
-       , measures   = mappend (measures   sp1) (measures   sp2)
        , tyconEnv   = mappend (tyconEnv   sp1) (tyconEnv   sp2)
        , dicts      = mappend (dicts      sp1) (dicts      sp2)
        , exports    = unionNameSet (exports sp1) (exports sp2)
@@ -1032,7 +1031,7 @@ grabArgs τs (FunTy τ1 τ2 )
 grabArgs τs τ              = reverse (τ:τs)
 
 
-mkDataConIdsTy (dc, t) = [expandProductType id t | id <- dataConImplicitIds dc]
+mkDataConIdsTy dc t = [expandProductType id t | id <- dataConImplicitIds dc]
 
 expandProductType x t
   | ofType (varType x) == toRSort t = (x, t)

@@ -162,6 +162,7 @@ module Language.Haskell.Liquid.Types (
   , Cinfo (..)
 
   -- * Measures
+  , SpecMeasure
   , Measure (..)
   , CMeasure (..)
   , Def (..)
@@ -339,10 +340,10 @@ data GhcSpec = SP {
     tySigs     :: ![(Var, Located SpecType)]     -- ^ Asserted Reftypes
                                                  -- eg.  see include/Prelude.spec
   , asmSigs    :: ![(Var, Located SpecType)]     -- ^ Assumed Reftypes
-  , ctors      :: ![(Var, Located SpecType)]     -- ^ Data Constructor Measure Sigs
+  , ctors      :: ![(Id,  Located SpecType)]     -- ^ Data Constructor Measure Sigs
                                                  -- eg.  (:) :: a -> xs:[a] -> {v: Int | v = 1 + len(xs) }
-  , meas       :: ![(Symbol, Located SpecType)]  -- ^ Measure Types
-                                                 -- eg.  len :: [a] -> Int
+  , meas       :: M.HashMap Var SpecMeasure      -- ^ Measures
+                                                 -- eg.  measure len :: [a] -> Int
   , invariants :: ![Located SpecType]            -- ^ Data Type Invariants
                                                  -- eg.  forall a. {v: [a] | len(v) >= 0}
   , ialiases   :: ![(Located SpecType, Located SpecType)] -- ^ Data Type Invariant Aliases
@@ -364,11 +365,10 @@ data GhcSpec = SP {
   , autosize   :: !(S.HashSet TyCon)             -- ^ Binders to IGNORE during termination checking
   , config     :: !Config                        -- ^ Configuration Options
   , exports    :: !NameSet                       -- ^ `Name`s exported by the module being verified
-  , measures   :: [Measure SpecType DataCon]
   , tyconEnv   :: M.HashMap TyCon RTyCon
   , dicts      :: DEnv Var SpecType              -- ^ Dictionary Environment
   , rtEnv      :: RTEnv                          -- ^ Type Synonym Environment
-  , tinlines   :: ![(Var, TInline)]              -- ^ Inline Environment
+  , tinlines   :: M.HashMap Var TInline          -- ^ Inline Environment
   }
 
 type LogicMap = M.HashMap Symbol LMap
@@ -1645,10 +1645,13 @@ data TInline = TI { tiargs :: [Symbol]
 --------------------------------------------------------------------------------
 --- Measures
 --------------------------------------------------------------------------------
-data Measure ty ctor = M {
+
+type SpecMeasure = Measure SpecType Id
+
+data Measure ty id = M {
     name :: LocSymbol
   , sort :: ty
-  , eqns :: [Def ty ctor]
+  , defs :: [(id, ty)]
   } deriving (Data, Typeable)
 
 data CMeasure ty
@@ -1656,16 +1659,15 @@ data CMeasure ty
        , cSort :: ty
        }
 
-data Def ty ctor
+data Def
   = Def {
     measure :: LocSymbol
-  , dparams :: [(Symbol, ty)]
-  , ctor    :: ctor
-  , dsort   :: Maybe ty
-  , binds   :: [(Symbol, Maybe ty)]
+  , dparams :: [(Symbol, RRType Reft)]
+  , ctor    :: DataCon
+  , dsort   :: Maybe (RRType Reft)
+  , binds   :: [(Symbol, Maybe (RRType Reft))]
   , body    :: Body
-  } deriving (Show, Data, Typeable)
-deriving instance (Eq ctor, Eq ty) => Eq (Def ty ctor)
+  } deriving (Data, Typeable)
 
 data Body
   = E Expr          -- ^ Measure Refinement: {v | v = e }
@@ -1673,13 +1675,13 @@ data Body
   | R Symbol Pred   -- ^ Measure Refinement: {v | p}
   deriving (Show, Eq, Data, Typeable)
 
-instance Subable (Measure ty ctor) where
-  syms (M _ _ es)      = concatMap syms es
-  substa f  (M n s es) = M n s $ substa f  <$> es
-  substf f  (M n s es) = M n s $ substf f  <$> es
-  subst  su (M n s es) = M n s $ subst  su <$> es
+instance Subable ty => Subable (Measure ty id) where
+  syms (M _ _ es)      = concatMap (syms . snd) es
+  substa f  (M n s es) = M n s $ second (substa f ) <$> es
+  substf f  (M n s es) = M n s $ second (substf f ) <$> es
+  subst  su (M n s es) = M n s $ second (subst  su) <$> es
 
-instance Subable (Def ty ctor) where
+instance Subable Def where
   syms (Def _ sp _ _ sb bd)  = (fst <$> sp) ++ (fst <$> sb) ++ syms bd
   substa f  (Def m p c t b bd) = Def m p c t b $ substa f  bd
   substf f  (Def m p c t b bd) = Def m p c t b $ substf f  bd
