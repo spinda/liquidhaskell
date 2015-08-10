@@ -12,7 +12,7 @@
 -- 3. JSON files for the web-demo etc.
 ---------------------------------------------------------------------------
 
-module Language.Haskell.Liquid.Annotate (mkOutput, annotate) where
+module Language.Haskell.Liquid.Pipeline.Annotate (mkOutput, annotate) where
 
 import           GHC                      ( SrcSpan (..)
                                           , srcSpanStartCol
@@ -36,11 +36,10 @@ import           System.FilePath          (takeFileName, dropFileName, (</>))
 import           System.Directory         (findExecutable, copyFile)
 import           Text.Printf              (printf)
 import qualified Data.List              as L
-import qualified Data.Vector            as V
 import qualified Data.ByteString.Lazy   as B
 import qualified Data.Text              as T
 import qualified Data.HashMap.Strict    as M
-import qualified Language.Haskell.Liquid.ACSS as ACSS
+import qualified Language.Haskell.Liquid.Pipeline.ACSS as ACSS
 import           Language.Haskell.HsColour.Classify
 import           Language.Fixpoint.Files
 import           Language.Fixpoint.Names hiding (encode)
@@ -367,7 +366,7 @@ instance ToJSON Loc where
                              , "column"   .= toJSON c ]
 
 instance ToJSON AnnErrors where
-  toJSON errs      = Array $ V.fromList $ fmap toJ errs
+  toJSON errs      = toJSON $ fmap toJ errs
     where
       toJ (l,l',s) = object [ "start"   .= toJSON l
                             , "stop"    .= toJSON l'

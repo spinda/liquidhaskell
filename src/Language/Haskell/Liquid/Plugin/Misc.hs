@@ -4,6 +4,7 @@ module Language.Haskell.Liquid.Plugin.Misc (
   , tcPluginFindModule
   , tcPluginGhc
   , tcPluginHomeModules
+  , tcPluginHscSource
   , tcPluginIsHsBootOrSig
   , tcPluginModSummary
   , tcPluginModule
@@ -43,11 +44,15 @@ tcPluginGhc act = do
 
 -- | Is the current module a .hs-boot or .hsig?
 tcPluginIsHsBootOrSig :: TcPluginM Bool
-tcPluginIsHsBootOrSig = (isHsBootOrSig . tcg_src . fst) <$> getEnvs
+tcPluginIsHsBootOrSig = isHsBootOrSig <$> tcPluginHscSource
 
 -- | Get a set of all home modules
 tcPluginHomeModules :: TcPluginM ModuleSet
 tcPluginHomeModules = (mkModuleSet . map ms_mod) <$> tcPluginModuleGraph
+
+-- | Get the source type for the current module
+tcPluginHscSource :: TcPluginM HscSource
+tcPluginHscSource = (tcg_src . fst) <$> getEnvs
 
 -- | Look up the ModSummary for a home module
 tcPluginModSummary :: ModuleName -> TcPluginM ModSummary

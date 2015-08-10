@@ -38,12 +38,12 @@ liquidHooks = simpleUserHooks { postCopy = liquidPostCopy
                               , postInst = liquidPostInst
                               }
 
--- | Call 'installLqiuFiles' during @cabal copy@
+-- | Call 'installLqhiFiles' during @cabal copy@
 liquidPostCopy :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
 liquidPostCopy _args flags =
   installLqhiFiles (fromFlag $ copyVerbosity flags) (fromFlag $ copyDest flags)
 
--- | Call 'installLqiuFiles' during @cabal install@
+-- | Call 'installLqhiFiles' during @cabal install@
 liquidPostInst ::  Args -> InstallFlags -> PackageDescription -> LocalBuildInfo -> IO ()
 liquidPostInst _args flags =
   installLqhiFiles (fromFlag $ installVerbosity flags) NoCopyDest

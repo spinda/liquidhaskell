@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Language.Haskell.Liquid.Literals (
-        literalFRefType, literalFReft, literalConst
+        literalFRefType, literalFReft, literalConst, mkLit
         ) where
 
 import TypeRep
@@ -9,7 +9,6 @@ import Literal
 import Language.Haskell.Liquid.Measure
 import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.RefType
-import Language.Haskell.Liquid.CoreToLogic (mkLit)
 
 import qualified Language.Fixpoint.Types as F
 
@@ -50,3 +49,20 @@ mkReft e = case e of
 literalConst tce l         = (sort, mkLit l)
   where
     sort                   = typeSort tce $ literalType l
+
+
+mkLit :: Literal -> Maybe F.Expr
+mkLit (MachInt    n)   = mkI n
+mkLit (MachInt64  n)   = mkI n
+mkLit (MachWord   n)   = mkI n
+mkLit (MachWord64 n)   = mkI n
+mkLit (MachFloat  n)   = mkR n
+mkLit (MachDouble n)   = mkR n
+mkLit (LitInteger n _) = mkI n
+mkLit (MachStr s)      = mkS s 
+mkLit _                = Nothing -- ELit sym sort
+
+mkI                    = Just . F.ECon . F.I  
+mkR                    = Just . F.ECon . F.R  . fromRational
+mkS                    = Just . F.ESym . F.SL . T.decodeUtf8
+

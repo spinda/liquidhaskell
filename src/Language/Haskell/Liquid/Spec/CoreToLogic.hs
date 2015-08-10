@@ -11,10 +11,11 @@
 --       lot of logic here that wouldn't be necessary if Pred and Expr were
 --       merged.
 
-module Language.Haskell.Liquid.CoreToLogic ( 
+module Language.Haskell.Liquid.Spec.CoreToLogic ( 
 
-  coreToDef , coreToFun
-  , mkLit, runToLogic,
+  LogicM,
+  coreToDef, coreToFun,
+  runToLogic,
   logicType, 
   strengthenResult
 
@@ -28,8 +29,6 @@ import qualified CoreSyn   as C
 import Literal
 import IdInfo
 
-import Data.Text.Encoding
-
 import TysWiredIn 
 
 import Control.Applicative 
@@ -40,6 +39,7 @@ import Language.Fixpoint.Types hiding (Def, R, simplify)
 import qualified Language.Fixpoint.Types as F
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.GhcPlay
+import Language.Haskell.Liquid.Literals (mkLit)
 import Language.Haskell.Liquid.Types    hiding (GhcInfo(..), GhcSpec (..))
 import Language.Haskell.Liquid.WiredIn
 import Language.Haskell.Liquid.RefType
@@ -166,9 +166,6 @@ coreToFun _ v e = go [] $ inline_preds $ simplify e
     inline_preds = inline (eqType boolTy . varType)
 
     rty = snd $ splitFunTys $ snd $ splitForAllTys $ varType v
-
-instance Show C.CoreExpr where
-  show = showPpr
 
 coreToPred :: C.CoreExpr -> LogicM Pred
 coreToPred (C.Let b p)  = subst1 <$> coreToPred p <*>  makesub b
@@ -301,7 +298,7 @@ tosymbol (C.Var c) | isDataConId  c = return $ dummyLoc $ symbol c
 tosymbol (C.Var x) = return $ dummyLoc $ simpleSymbolVar x
 tosymbol  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t cannot be applied")
 
--- TODO: Temporary hack for measures
+-- TODO: Remove uniques from our symbols
 tosymbol0 (C.Var c) | isDataConId  c = return $ dummyLoc $ symbol c 
 tosymbol0 (C.Var x) = return $ dummyLoc $ varSymbol x
 tosymbol0  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t cannot be applied")
@@ -311,21 +308,6 @@ tosymbol'  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t can
 
 makesub (C.NonRec x e) =  (symbol x,) <$> coreToLogic e
 makesub  _             = throw "Cannot make Logical Substitution of Recursive Definitions"
-
-mkLit :: Literal -> Maybe Expr
-mkLit (MachInt    n)   = mkI n
-mkLit (MachInt64  n)   = mkI n
-mkLit (MachWord   n)   = mkI n
-mkLit (MachWord64 n)   = mkI n
-mkLit (MachFloat  n)   = mkR n
-mkLit (MachDouble n)   = mkR n
-mkLit (LitInteger n _) = mkI n
-mkLit (MachStr s)      = mkS s 
-mkLit _                = Nothing -- ELit sym sort
-
-mkI                    = Just . ECon . I  
-mkR                    = Just . ECon . F.R . fromRational
-mkS                    = Just . ESym . SL  . decodeUtf8
 
 ignoreVar i = simpleSymbolVar i `elem` ["I#"]
 

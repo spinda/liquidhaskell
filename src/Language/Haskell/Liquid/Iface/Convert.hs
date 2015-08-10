@@ -59,7 +59,6 @@ import Text.Parsec.Pos
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Types hiding (Found, Predicate)
 
-import Language.Haskell.Liquid.CmdLine
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.RefType
@@ -81,15 +80,16 @@ instance Iface (IfaceData GhcSpec) (IfaceData IfaceSpec) where
   toIface   = fmap toIface
   fromIface = traverse fromIface
 
+-- TODO: Trim down what's included (add more export filtering)
 instance Iface GhcSpec IfaceSpec where
   toIface (SP {..}) =
-    IS { ifaceTySigs     = ofTySig <$> filter isExported tySigs
-       , ifaceAsmSigs    = ofTySig <$> filter isExported asmSigs
-       , ifaceCtors      = ofTySig <$> filter isExported ctors
-       , ifaceMeas       = ofMeasure <$> filter isExported (M.toList meas)
+    IS { ifaceTySigs     = ofTySig <$> filter isExported (M.toList tySigs)
+       , ifaceAsmSigs    = ofTySig <$> filter isExported (M.toList asmSigs)
+       , ifaceCtors      = ofTySig <$> filter isExported (M.toList ctors)
+       , ifaceMeas       = ofMeasure <$> M.toList meas
        , ifaceInvariants = fmap toIface <$> invariants
        , ifaceIAliases   = ofIAlias <$> ialiases
-       , ifaceFreeSyms   = second getName <$> freeSyms
+       , ifaceFreeSyms   = second getName <$> M.toList freeSyms
        , ifaceTcEmbeds   = first toIfaceTyCon <$> M.toList tcEmbeds
        , ifaceQualifiers = qualifiers
        , ifaceTyConEnv   = ofTyConEnv <$> M.toList tyconEnv
@@ -107,13 +107,13 @@ instance Iface GhcSpec IfaceSpec where
       ofRTAlias  = toIfaceTyCon *** toIface
 
   fromIface (IS {..}) = do
-    tySigs     <- mapM ofTySig ifaceTySigs
-    asmSigs    <- mapM ofTySig ifaceAsmSigs
-    ctors      <- mapM ofTySig ifaceCtors
+    tySigs     <- M.fromList <$> mapM ofTySig ifaceTySigs
+    asmSigs    <- M.fromList <$> mapM ofTySig ifaceAsmSigs
+    ctors      <- M.fromList <$> mapM ofTySig ifaceCtors
     meas       <- M.fromList <$> mapM ofMeasure ifaceMeas
     invariants <- mapM (traverse fromIface) ifaceInvariants
     ialiases   <- mapM ofIAlias ifaceIAliases
-    freeSyms   <- mapM (secondM lookupIfaceVar) ifaceFreeSyms
+    freeSyms   <- M.fromList <$> mapM (secondM lookupIfaceVar) ifaceFreeSyms
     tcEmbeds   <- M.fromList <$> mapM (firstM tcIfaceTyCon) ifaceTcEmbeds
     tyconEnv   <- M.fromList <$> mapM ofTyConEnv ifaceTyConEnv
     rtEnv      <- M.fromList <$> mapM ofRTAlias ifaceRTEnv
@@ -243,16 +243,8 @@ instance Iface (RTAlias RTyVar SpecType) (RTAlias IfLclName IfaceType) where
 -- Utiliy Functions ------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-lookupIfaceTyThing :: Name -> IfL TyThing
-lookupIfaceTyThing name = do
-  hscEnv    <- env_top <$> getEnv
-  (msgs, m) <- liftIO $ tcRnLookupName hscEnv name
-  case m of
-    Nothing    -> liftIO $ throwIO $ mkSrcErr $ snd msgs
-    Just thing -> return thing
-
 lookupIfaceVar :: Name -> IfL Var
-lookupIfaceVar = fmap ofThing . lookupIfaceTyThing
+lookupIfaceVar = fmap ofThing . tcIfaceGlobal
   where
     ofThing (AnId x) = x
     ofThing thing    = error $ "Bad result in lookupIfaceVar: " ++ showPpr thing

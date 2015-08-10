@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Language.Haskell.Liquid.Plugin (
     plugin
   ) where
@@ -6,7 +8,7 @@ import GHC
 
 import ErrUtils
 import GhcMonad
-import GhcPlugins hiding (getOpts)
+import GhcPlugins
 import HscTypes
 import Module
 import TcPluginM
@@ -16,17 +18,23 @@ import Data.IORef
 
 import System.IO.Unsafe
 
-import Language.Haskell.Liquid.CmdLine
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Iface
 import Language.Haskell.Liquid.Types
 
+import Language.Haskell.Liquid.Plugin.Config
 import Language.Haskell.Liquid.Plugin.Driver
 import Language.Haskell.Liquid.Plugin.Misc
 
 -- | GHC plugin entry point
 plugin :: Plugin
-plugin = defaultPlugin { tcPlugin = pluginInstall }
+plugin = printCopyright $ defaultPlugin { tcPlugin = pluginInstall }
+
+-- | Print the LiquidHaskell copyright notice when first loaded
+printCopyright :: a -> a
+printCopyright = seq $ unsafePerformIO $ putStrLn $
+  "LiquidHaskell Copyright 2009-15 Regents of the University of California. All Rights Reserved."
+{-# NOINLINE printCopyright #-}
 
 -- | Install LiquidHaskell typechecker plugin
 pluginInstall :: [CommandLineOption] -> Maybe TcPlugin
@@ -38,7 +46,7 @@ pluginInstall opts = Just $ TcPlugin
 
 -- | LiquidHaskell plugin initialization
 pluginInit :: [CommandLineOption] -> TcPluginM Config
-pluginInit = tcPluginIO . getOpts
+pluginInit = tcPluginIO . parsePluginOpts
 
 -- | LiquidHaskell plugin main pipeline
 pluginMain :: Config -> TcPluginM ()

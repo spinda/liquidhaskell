@@ -122,9 +122,9 @@ sliceSaved' is lm (DC cbs res sp)
 -- Add the specified signatures for vars-with-preserved-sigs,
 -- whose bodies have been pruned from [CoreBind] into the "assumes"
 assumeSpec :: M.HashMap Var (Located SpecType) -> GhcSpec -> GhcSpec
-assumeSpec sigm sp = sp { asmSigs = M.toList $ M.union sigm assm }
+assumeSpec sigm sp = sp { asmSigs = M.union sigm $ asmSigs sp }
   where
-    assm           = M.fromList $ asmSigs sp
+    -- assm        = M.fromList $ asmSigs sp
     -- sigm'       = trace ("INCCHECK: sigm = " ++ show zs) sigm
     -- zs          = M.keys sigm
 
@@ -141,17 +141,15 @@ diffVars ls defs'    = -- tracePpr ("INCCHECK: diffVars lines = " ++ show ls ++ 
       | otherwise    = binder d : go (i:is) ds
 
 sigVars :: [Int] -> GhcSpec -> M.HashMap Var (Located SpecType)
-sigVars ls sp = M.fromList $ filter (ok . snd) $ specSigs sp
+sigVars ls sp = M.filter ok $ specSigs sp
   where
-    ok        = not . isDiff ls
+    ok  = not . isDiff ls
 
 globalDiff :: [Int] -> GhcSpec -> Bool
-globalDiff ls sp = measDiff || invsDiff || dconsDiff
+globalDiff ls sp = measDiff || invsDiff
   where
     measDiff  = any (isDiff ls) (name <$> M.elems (meas sp))
     invsDiff  = any (isDiff ls) (invariants   sp)
-    dconsDiff = any (isDiff ls) (dloc . snd <$> dconsP sp)
-    dloc dc   = Loc (dc_loc dc) (dc_locE dc) ()
 
 isDiff :: [Int] -> Located a -> Bool
 isDiff ls x = any hits ls
@@ -207,12 +205,12 @@ filterBinds cbs ys = filter f cbs
 -------------------------------------------------------------------------
 specDefs :: GhcSpec -> [Def]
 -------------------------------------------------------------------------
-specDefs       = map def . specSigs
+specDefs       = map def . M.toList . specSigs
   where
     def (x, t) = D (line t) (lineE t) x
 
-specSigs :: GhcSpec -> [(Var, Located SpecType)]
-specSigs sp = tySigs sp ++ asmSigs sp ++ ctors sp
+specSigs :: GhcSpec -> M.HashMap Var (Located SpecType)
+specSigs sp = M.unions [tySigs sp, asmSigs sp, ctors sp]
 
 -------------------------------------------------------------------------
 coreDefs     :: [CoreBind] -> [Def]

@@ -12,16 +12,18 @@ import Language.Fixpoint.Types
 import Language.Fixpoint.Misc
 
 import Control.Applicative      ((<$>))
+import Control.Arrow            (second)
 import Data.List                (delete, nub)
 import Data.Maybe               (fromMaybe)
-import qualified Data.HashSet as S
-import Data.Bifunctor           (second)
+
+import qualified Data.HashMap.Strict as M
+import qualified Data.HashSet        as S
 
 -----------------------------------------------------------------------------------
 specificationQualifiers :: Int -> GhcInfo -> [Qualifier]
 -----------------------------------------------------------------------------------
 specificationQualifiers k info
-  = [ q | (x, t) <- (tySigs $ spec info) ++ (asmSigs $ spec info) ++ (ctors $ spec info)
+  = [ q | (x, t) <- (M.toList $ tySigs $ spec info) ++ (M.toList $ asmSigs $ spec info) ++ (M.toList $ ctors $ spec info)
         -- FIXME: this mines extra, useful qualifiers but causes a significant increase in running time
         -- , ((isClassOp x || isDataCon x) && x `S.member` (S.fromList $ impVars info ++ defVars info)) || x `S.member` (S.fromList $ defVars info)
         , x `S.member` (S.fromList $ defVars info)

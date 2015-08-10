@@ -28,7 +28,7 @@ import qualified Language.Fixpoint.Types            as F
 
 import Language.Fixpoint.Misc
 
-import qualified Language.Haskell.Liquid.CTags      as Tg
+import qualified Language.Haskell.Liquid.Constraint.CTags      as Tg
 
 data CGEnv
   = CGE { loc    :: !SrcSpan           -- ^ Location in original source file

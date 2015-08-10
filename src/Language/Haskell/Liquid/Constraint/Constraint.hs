@@ -3,6 +3,8 @@
 
 module Language.Haskell.Liquid.Constraint.Constraint  where
 
+-- TODO: What is this module? It needs a new name.
+
 import Data.Monoid
 import Data.Maybe
 import Control.Applicative

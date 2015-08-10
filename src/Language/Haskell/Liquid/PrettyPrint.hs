@@ -96,6 +96,9 @@ instance PPrint Class where
 instance Show Predicate where
   show = showpp
 
+instance PPrint FTycon where
+  pprint = pprint . val . fTyconSymbol
+
 
 -- | Printing an Ordered List
 

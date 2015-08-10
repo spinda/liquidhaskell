@@ -15,7 +15,7 @@ import Var
 import Type
 import TysPrim
 import TysWiredIn
-import Text.PrettyPrint.HughesPJ hiding (first)
+import Text.PrettyPrint.HughesPJ
 import Text.Printf (printf)
 import DataCon
 
@@ -24,7 +24,6 @@ import qualified Data.HashSet        as S
 import Data.List (foldl')
 
 import Data.Monoid hiding ((<>))
-import Data.Bifunctor
 import Control.Applicative      ((<$>))
 
 import Data.Maybe (fromMaybe)

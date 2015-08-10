@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
 -- TODO: There's likely a higher-level simplification that can be used to
@@ -46,6 +47,7 @@ import Data.List
 import Data.Maybe
 import Data.Monoid
 
+import qualified Data.HashSet        as S
 import qualified Data.HashMap.Strict as M
 
 import Text.Parsec.Pos
@@ -55,8 +57,9 @@ import Language.Fixpoint.Types
 
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.RefType
-import Language.Haskell.Liquid.RType (ExprParams(..))
 import Language.Haskell.Liquid.Types
+
+import Language.Haskell.Liquid.TH.Types (ExprParams(..))
 
 import Language.Haskell.Liquid.Spec.WiredIns
 
@@ -67,13 +70,14 @@ import Language.Haskell.Liquid.Spec.WiredIns
 newtype ReifyM a = ReifyM { unReifyM :: StateT ReifyState Ghc a }
                    deriving (Functor, Applicative, Monad, MonadIO)
 
-data ReifyState = RS { rs_freshInt   :: Integer
-                     , rs_wiredIns   :: WiredIns
-                     , rs_rtEnv      :: RTEnv
-                     , rs_exprParams :: NameEnv [Symbol]
-                     , rs_inlines    :: M.HashMap Var TInline
-                     , rs_meas       :: M.HashMap Var SpecMeasure
-                     , rs_freeSyms   :: M.HashMap Symbol Var
+data ReifyState = RS { rs_freshInt   :: !Integer
+                     , rs_bindScope  :: !(S.HashSet Symbol)
+                     , rs_wiredIns   :: !WiredIns
+                     , rs_rtEnv      :: !RTEnv
+                     , rs_exprParams :: !(NameEnv [Symbol])
+                     , rs_inlines    :: !(M.HashMap Var TInline)
+                     , rs_meas       :: !(M.HashMap Var SpecMeasure)
+                     , rs_freeSyms   :: !(M.HashMap Symbol Var)
                      }
 
 
@@ -83,12 +87,12 @@ runReifyM :: ReifyM a
           -> NameEnv [Symbol]
           -> M.HashMap Var TInline
           -> M.HashMap Var SpecMeasure
-          -> Ghc (a, [(Symbol, Var)])
+          -> Ghc (a, M.HashMap Symbol Var)
 runReifyM act wiredIns rtEnv exprParams inlines meas = do
   (x, s) <- runStateT (unReifyM act) initState
-  return (x, M.toList $ rs_freeSyms s)
+  return (x, rs_freeSyms s)
   where
-    initState   = RS 0 wiredIns rtEnv exprParams' inlines meas mempty
+    initState   = RS 0 mempty wiredIns rtEnv exprParams' inlines meas mempty
     exprParams' = plusNameEnv exprParams $
       mkNameEnv $ map (getName *** rtEArgs) $ M.toList rtEnv
 
@@ -102,6 +106,17 @@ mkFreshInt = ReifyM $ do
   put $ state { rs_freshInt = freshInt + 1 }
   return freshInt
 
+withBindScope :: [Symbol] -> ReifyM a -> ReifyM a
+withBindScope binds act = ReifyM $ do
+  state@RS{..} <- get
+  put $ state { rs_bindScope = S.union (S.fromList binds) rs_bindScope }
+  result <- unReifyM act
+  put state
+  return result
+
+isBindInScope :: Symbol -> ReifyM Bool
+isBindInScope bind = ReifyM $ gets (S.member bind . rs_bindScope)
+
 getWiredIns :: ReifyM WiredIns
 getWiredIns = ReifyM $ gets rs_wiredIns
 
@@ -113,23 +128,14 @@ lookupExprParams tc = ReifyM $ do
   env <- gets rs_exprParams
   return $ fromMaybe [] $ lookupNameEnv env $ getName tc
 
-lookupInline :: Symbol -> ReifyM (Maybe TInline)
-lookupInline s = do
-  var <- liftGhc $ lookupVar s
-  case var of
-    Nothing  -> return Nothing
-    Just key -> ReifyM $ gets (M.lookup key . rs_inlines)
+lookupInline :: Var -> ReifyM (Maybe TInline)
+lookupInline var = ReifyM $ gets (M.lookup var . rs_inlines)
 
-lookupMeasure :: Symbol -> ReifyM (Maybe SpecMeasure)
-lookupMeasure s = do
-  var <- liftGhc $ lookupVar s
-  case var of
-    Nothing  -> return Nothing
-    Just key -> ReifyM $ gets (M.lookup key . rs_meas)
+lookupMeasure :: Var -> ReifyM (Maybe SpecMeasure)
+lookupMeasure var = ReifyM $ gets (M.lookup var . rs_meas)
 
--- TODO: Move elsewhere?
-lookupVar :: Symbol -> Ghc (Maybe Var)
-lookupVar s = do
+lookupVar :: Symbol -> ReifyM (Maybe Var)
+lookupVar s = liftGhc $ do
   names  <- ghandle catchNotInScope $ parseName $ symbolString s
   things <- mapMaybeM lookupName names
   return $ listToMaybe $ mapMaybe tyThingId_maybe things
@@ -146,35 +152,42 @@ visitFreeSym sym var = ReifyM $ modify $ \st ->
 --------------------------------------------------------------------------------
 
 reifyRTy :: Type -> ReifyM SpecType
+reifyRTy ty = do
+  ty' <- reifyRTy' ty
+  let rep = toRTypeRep ty'
+  withBindScope (ty_binds rep) (resolveRTy ty')
 
-reifyRTy (TyVarTy tv)  =
+
+reifyRTy' :: Type -> ReifyM SpecType
+
+reifyRTy' (TyVarTy tv)  =
   return $ rVar tv
 
-reifyRTy (AppTy t1 t2) =
-  RAppTy <$> reifyRTy t1 <*> reifyRTy t2 <*> pure mempty
+reifyRTy' (AppTy t1 t2) =
+  RAppTy <$> reifyRTy' t1 <*> reifyRTy' t2 <*> pure mempty
 
-reifyRTy (TyConApp tc as) = go =<< getWiredIns
+reifyRTy' (TyConApp tc as) = go =<< getWiredIns
   where
     go wis
       | tc == tc_Bind wis, [_, b, _a] <- as =
         invalidBind =<< traverse reifySymbol =<< reifyLocated b
       | tc == tc_Refine wis, [_, a, b, p] <- as =
-        strengthen <$> reifyRTy a <*> reifyRReft b p
+        strengthen <$> reifyRTy' a <*> reifyRReft b p
       | tc == tc_ExprArgs wis, [_, a, es] <- as =
         reifyExprArgs a es
       | isTypeSynonymTyCon tc =
         reifyTySynApp tc as
       | otherwise =
-        rApp tc <$> mapM reifyRTy as <*> pure [] <*> pure mempty
+        rApp tc <$> mapM reifyRTy' as <*> pure [] <*> pure mempty
 
-reifyRTy (FunTy i o) = do
+reifyRTy' (FunTy i o) = do
   (b, i') <- reifyBind i
-  RFun b <$> reifyRTy i' <*> reifyRTy o <*> pure mempty
+  RFun b <$> reifyRTy' i' <*> reifyRTy' o <*> pure mempty
 
-reifyRTy (ForAllTy tv ty) = do
-  RAllT (rTyVar tv) <$> reifyRTy ty
+reifyRTy' (ForAllTy tv ty) = do
+  RAllT (rTyVar tv) <$> reifyRTy' ty
 
-reifyRTy ty@(LitTy _) =
+reifyRTy' ty@(LitTy _) =
   malformed "type" ty
 
 
@@ -183,17 +196,17 @@ reifyTySynApp tc as = do
   rtAlias <- lookupRTAlias tc
   case rtAlias of
     Just (RTA targs _ body) -> do
-      as' <- mapM reifyRTy as
+      as' <- mapM reifyRTy' as
       let ats = zipWith (\a t -> (a, toRSort t, t)) targs as'
       return $ subsTyVars_meet ats body
     Nothing ->
       let Just (tenv, rhs, as') = tcExpandTyCon_maybe tc as
-      in  reifyRTy (mkAppTys (substTy (mkTopTvSubst tenv) rhs) as')
+      in  reifyRTy' (mkAppTys (substTy (mkTopTvSubst tenv) rhs) as')
 
 -- TODO: Error out when no expression arguments are given and some are needed
 reifyExprArgs :: Type -> Type -> ReifyM SpecType
 reifyExprArgs a@(TyConApp tc _) es = do
-  a'     <- reifyRTy a
+  a'     <- reifyRTy' a
   es'    <- mapM (traverse reifyExpr <=< reifyLocated) =<< reifyList es
   params <- lookupExprParams tc
   if length params /= length es'
@@ -229,10 +242,7 @@ reifyRefa = fmap Refa . reifyPred
 --------------------------------------------------------------------------------
 
 reifyPred :: Type -> ReifyM Pred
-reifyPred = resolvePred <=< reifyPred'
-
-reifyPred' :: Type -> ReifyM Pred
-reifyPred' ty = (`go` ty) =<< getWiredIns
+reifyPred ty = (`go` ty) =<< getWiredIns
   where
     go wis (TyConApp tc as)
       | tc == pc_PTrue wis, [] <- as =
@@ -271,8 +281,6 @@ reifyExpr ty = (`go` ty) =<< getWiredIns
         EVar <$> reifySymbol s
       | tc == pc_EParam wis, [s] <- as =
         EVar <$> reifySymbol s
-      | tc == pc_ECtr wis, [_, dc] <- as =
-        (EVar . val) <$> (traverse reifyDataCon =<< reifyLocated dc)
       | tc == pc_EApp wis, [e, es] <- as =
         reifyEApp e es
       | tc == pc_ENeg wis, [e] <- as =
@@ -332,75 +340,98 @@ reifyBop ty = (`go` ty) =<< getWiredIns
 -- Resolve Pred & Expr Applications --------------------------------------------
 --------------------------------------------------------------------------------
 
--- TODO: I (Michael) have a few lingering gripes with this code.
---       (a) It could be much cleaner if Pred and Expr were combined.
---       (b) The separation between measures and inlines also makes it a bit
---           strange. Really, we should have one "lifted into logic" mechanism,
---           and decide whether something can be inlined based on the properties
---           of the function.
---       (c) This should really be handled at the Template Haskell level, but
---           the setup we would need for that isn't possible with GHC 7.10.
---           We should really be using an annotation and Core2Core plugin
---           system instead of a TC plugin and this reification step. Maybe for
---           GHC 7.12, if we can land the right improvements before its
---           release.
+resolveRTy :: SpecType -> ReifyM SpecType
+resolveRTy = mapReftM resolveRReft
 
+resolveRReft :: RReft -> ReifyM RReft
+resolveRReft = traverse resolveReft
+
+resolveReft :: Reft -> ReifyM Reft
+resolveReft (Reft (s, r)) = Reft . (s, ) <$> resolveRefa r
+
+resolveRefa :: Refa -> ReifyM Refa
+resolveRefa = fmap Refa . resolvePred . raPred
+
+
+-- FIXME: Carry location through EVar (requires Fixpoint change)
 resolvePred :: Pred -> ReifyM Pred
-resolvePred (PBexp e@(EApp f es)) = do
-  inline <- lookupInline $ val f
-  case inline of
-    Just (TI args (Left body)) -> do
-      unless (length args == length es) (invalidInlineArgs f args es)
-      es' <- mapM resolveExpr es
-      return $ subst (mkSubst $ zip args es') body
-    _ ->
-      PBexp <$> resolveExpr e
-resolvePred (PBexp e    ) = PBexp <$> resolveExpr e
-resolvePred (PAnd ps    ) = PAnd <$> mapM resolvePred ps
-resolvePred (POr  ps    ) = POr <$> mapM resolvePred ps
-resolvePred (PNot p     ) = PNot <$> resolvePred p
-resolvePred (PImp x y   ) = PImp <$> resolvePred x <*> resolvePred y
-resolvePred (PIff x y   ) = PIff <$> resolvePred x <*> resolvePred y
-resolvePred (PAtom b x y) = PAtom b <$> resolveExpr x <*> resolveExpr y
-resolvePred (PAll xss p ) = PAll xss <$> resolvePred p
-resolvePred p             = return p
+resolvePred (PBexp (EVar v   )) = resolvePred $ PBexp $ EApp (dummyLoc v) []
+resolvePred (PBexp (EApp f es)) = either id PBexp <$> resolveVar f es
+resolvePred (PBexp e    )       = PBexp <$> resolveExpr e
+resolvePred (PAnd ps    )       = PAnd <$> mapM resolvePred ps
+resolvePred (POr  ps    )       = POr <$> mapM resolvePred ps
+resolvePred (PNot p     )       = PNot <$> resolvePred p
+resolvePred (PImp x y   )       = PImp <$> resolvePred x <*> resolvePred y
+resolvePred (PIff x y   )       = PIff <$> resolvePred x <*> resolvePred y
+resolvePred (PAtom b x y)       = PAtom b <$> resolveExpr x <*> resolveExpr y
+resolvePred (PAll xss p )       = PAll xss <$> resolvePred p
+resolvePred p                   = return p
 
+-- FIXME: Carry location through EVar (requires Fixpoint change)
 resolveExpr :: Expr -> ReifyM Expr
+resolveExpr (EVar v)    = resolveExpr $ EApp (dummyLoc v) []
 resolveExpr (EApp f es) = do
-  es'    <- mapM resolveExpr es
-  inline <- lookupInline $ val f
-  case inline of
-    Nothing -> do
-      measure <- lookupMeasure $ val f
-      return $ case measure of
-        Nothing ->
-          EApp f es'
-        Just (M { name = name }) ->
-          EApp (const (val name) <$> f) es'
-    Just (TI _ (Left _)) ->
-      liftGhc $ panic "TODO"
-    Just (TI args (Right body)) -> do
-      unless (length args == length es) (invalidInlineArgs f args es)
-      return $ subst (mkSubst $ zip args es') body
+  resolved <- resolveVar f es
+  case resolved of
+    Left  _ -> predInExprCtxt f
+    Right e -> return e
 resolveExpr (ENeg e    ) = ENeg <$> resolveExpr e
 resolveExpr (EBin b x y) = EBin b <$> resolveExpr x <*> resolveExpr y
 resolveExpr (EIte p x y) = EIte <$> resolvePred p <*> resolveExpr x <*> resolveExpr y
 resolveExpr (ECst e s  ) = (`ECst` s) <$> resolveExpr e
 resolveExpr e            = return e
 
---------------------------------------------------------------------------------
--- Reify Data Constructor ------------------------------------------------------
---------------------------------------------------------------------------------
 
-reifyDataCon :: Type -> ReifyM Symbol
-reifyDataCon (TyConApp tc _)
-  | Just dc <- isPromotedDataCon_maybe tc = do
-    let var = dataConWorkId dc
-    let sym = varSymbol var
-    visitFreeSym sym var
-    return sym
-reifyDataCon ty =
-  malformed "data constructor" ty
+resolveVar :: LocSymbol -> [Expr] -> ReifyM (Either Pred Expr)
+resolveVar f es = go_bind =<< mapM resolveExpr es
+  where
+    go_bind es' = do
+      bind <- isBindInScope $ val f
+      if bind
+         then return $ Right $ eVarOrApp f es
+         else go_var es'
+    go_var es' = do
+      mv <- sequence <$> traverse lookupVar f
+      case mv of
+        Nothing ->
+          return $ Right $ eVarOrApp f es'
+        Just var -> do
+          when (isDataConId $ val var) $
+            visitFreeSym (varSymbol $ val var) (dataConWorkId $ idDataCon $ val var)
+          go_inline var es'
+    go_inline var es' = do
+      inline <- lookupInline $ val var
+      case inline of
+        Just (TI args body) -> do
+          unless (length args == length es') (invalidInlineArgs f args es')
+          let su :: Subable a => a -> a
+              su = subst $ mkSubst $ zip args es'
+          return $ case body of
+            Left  p -> Left  $ su p
+            Right e -> Right $ su e
+        Nothing -> Right <$> go_measure var es'
+    go_measure var es' = do
+      measure <- lookupMeasure $ val var
+      return $ case measure of
+        Just M{..} ->
+          eVarOrApp (const (val name) <$> var) es'
+        Nothing -> go_fun var es'
+    go_fun var es'
+      | isFunVar $ val var =
+        EApp (varSymbol <$> var) es'
+      | otherwise =
+        eVarOrApp (varSymbol <$> var) es'
+
+
+isFunVar :: Var -> Bool
+isFunVar v = isDataConId v && not (null as) && isNothing tf
+  where
+    (as, t) = splitForAllTys $ varType v 
+    tf      = splitFunTy_maybe t
+
+eVarOrApp :: LocSymbol -> [Expr] -> Expr
+eVarOrApp v [] = EVar (val v)
+eVarOrApp f es = EApp f es
 
 --------------------------------------------------------------------------------
 -- Reify Components ------------------------------------------------------------
@@ -473,12 +504,25 @@ malformed :: String -> Type -> ReifyM a
 malformed desc ty = liftGhc $ panic $
   "Malformed LiquidHaskell " ++ desc ++ " encoding: " ++ dumpType ty
 
-invalidBind :: Located Symbol -> ReifyM a
-invalidBind lb = liftGhc $ panic $
+dumpType :: Type -> String
+dumpType (TyVarTy tv) = "(TyVarTy " ++ showPpr tv ++ ")"
+dumpType (AppTy t1 t2) = "(AppTy " ++ dumpType t1 ++ " " ++ dumpType t2 ++ ")"
+dumpType (TyConApp tc as) = "(TyConApp " ++ showPpr tc ++ " [" ++ intercalate ", " (map dumpType as) ++ "])"
+dumpType (FunTy t1 t2) = "(FunTy " ++ dumpType t1 ++ " " ++ dumpType t2 ++ ")"
+dumpType (ForAllTy tv ty) = "(ForAllTy " ++ showPpr tv ++ " " ++ dumpType ty ++ ")"
+dumpType (LitTy lit) = "(LitTy " ++ showPpr lit ++ ")"
+
+
+invalidBind :: LocSymbol -> ReifyM a
+invalidBind lb = liftGhc $ pgmError $
   "Bind cannot appear at this location: " ++ show lb
 
+predInExprCtxt :: LocSymbol -> ReifyM a
+predInExprCtxt ls = liftGhc $ pgmError $
+  "Predicate application cannot appear in expression context: " ++ show ls
+
 invalidExprArgs :: TyCon -> [Symbol] -> [Located Expr] -> ReifyM a
-invalidExprArgs tc params es = liftGhc $ panic $
+invalidExprArgs tc params es = liftGhc $ pgmError $
   "Type synonym " ++ showPpr tc ++
   " expects " ++ show expected ++
   " expression arguments but has been given " ++ show actual ++
@@ -491,21 +535,12 @@ invalidExprArgs tc params es = liftGhc $ panic $
       | otherwise         = (loc &&& locE) (last es)
 
 invalidEAppHead :: Located Expr -> ReifyM a
-invalidEAppHead e = liftGhc $ panic $
+invalidEAppHead e = liftGhc $ pgmError $
   "Expression does not take any parameters, and thus cannot begin an application: " ++ showpp e
 
 invalidInlineArgs :: LocSymbol -> [Symbol] -> [Expr] -> ReifyM a
-invalidInlineArgs f args es = liftGhc $ panic $
+invalidInlineArgs f args es = liftGhc $ pgmError $
   "Inline " ++ showpp f ++
   " expects " ++ show (length args) ++
   " arguments but has been given " ++ show (length es)
-
-
-dumpType :: Type -> String
-dumpType (TyVarTy tv) = "(TyVarTy " ++ showPpr tv ++ ")"
-dumpType (AppTy t1 t2) = "(AppTy " ++ dumpType t1 ++ " " ++ dumpType t2 ++ ")"
-dumpType (TyConApp tc as) = "(TyConApp " ++ showPpr tc ++ " [" ++ intercalate ", " (map dumpType as) ++ "])"
-dumpType (FunTy t1 t2) = "(FunTy " ++ dumpType t1 ++ " " ++ dumpType t2 ++ ")"
-dumpType (ForAllTy tv ty) = "(ForAllTy " ++ showPpr tv ++ " " ++ dumpType ty ++ ")"
-dumpType (LitTy lit) = "(LitTy " ++ showPpr lit ++ ")"
 

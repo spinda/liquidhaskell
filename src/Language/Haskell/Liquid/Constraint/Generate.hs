@@ -44,7 +44,7 @@ import Text.PrettyPrint.HughesPJ hiding (first)
 import Control.Monad.State
 
 import Control.Applicative      ((<$>), (<*>))
-import Control.Arrow            ((&&&))
+import Control.Arrow
 
 import Data.Monoid              (mconcat, mempty, mappend)
 import Data.Maybe               (fromMaybe, catMaybes, fromJust, isJust)
@@ -52,14 +52,13 @@ import qualified Data.HashMap.Strict as M
 import qualified Data.HashSet        as S
 import qualified Data.List           as L
 import qualified Data.Text           as T
-import Data.Bifunctor
 import Data.List (foldl')
 import qualified Data.Foldable    as F
 import qualified Data.Traversable as T
 
 import Text.Printf
 
-import qualified Language.Haskell.Liquid.CTags      as Tg
+import qualified Language.Haskell.Liquid.Constraint.CTags      as Tg
 import Language.Fixpoint.Sort (pruneUnsortedReft)
 import Language.Fixpoint.Visitor
 
@@ -97,7 +96,7 @@ generateConstraints      :: GhcInfo -> CGInfo
 generateConstraints info = {-# SCC "ConsGen" #-} execState act $ initCGI cfg info
   where
     act                  = consAct info
-    cfg                  = config $ spec info
+    cfg                  = config info
 
 
 consAct info
@@ -125,14 +124,14 @@ initEnv :: GhcInfo -> CG CGEnv
 initEnv info
   = do let tce   = tcEmbeds sp
        let fVars = impVars info
-       let dcs   = filter isConLikeId ((snd <$> freeSyms sp))
+       let dcs   = filter isConLikeId $ M.elems $ freeSyms sp
        let dcs'   = filter isConLikeId fVars
        defaults <- forM fVars $ \x -> liftM (x,) (trueTy $ varType x)
        dcsty    <- forM dcs   $ \x -> liftM (x,) (trueTy $ varType x)
        dcsty'   <- forM dcs'  $ \x -> liftM (x,) (trueTy $ varType x)
        (hs,f0)  <- refreshHoles $ grty info                  -- asserted refinements     (for defined vars)
        f0''     <- refreshArgs' =<< grtyTop info             -- default TOP reftype      (for exported vars without spec)
-       let f0'   = if notruetypes $ config sp then [] else f0''
+       let f0'   = if notruetypes $ config info then [] else f0''
        f1       <- refreshArgs'   defaults                   -- default TOP reftype      (for all vars)
        f1'      <- refreshArgs' $ makedcs dcsty
        f2       <- refreshArgs' $ assm info                  -- assumed refinements      (for imported vars)
@@ -152,7 +151,7 @@ initEnv info
   where
     sp           = spec info
     ialias       = mkRTyConIAl $ ialiases sp
-    vals f       = map (mapSnd val) . f
+    vals f       = map (mapSnd val) . M.toList . f
     mapSndM f (x,y) = (x,) <$> f y
     makedcs      = map strengthenDataConType
 
@@ -232,7 +231,7 @@ predsUnify sp = second (addTyConInfo tce tyi) -- needed to eliminate some @RProp
 measEnv sp xts cbs lts asms hs autosizes
   = CGE { loc   = noSrcSpan
         , renv  = fromListREnv $ ((val . name) &&& sort) <$> M.elems (meas sp)
-        , syenv = F.fromListSEnv $ freeSyms sp
+        , syenv = F.fromListSEnv $ M.toList $ freeSyms sp -- TODO: This is  wasteful; expose a HashMap constructor for SEnv from Fixpoint
         , fenv  = initFEnv $ lts ++ (((val . name) &&& (rTypeSort tce . sort)) <$> M.elems (meas sp))
         , denv  = dicts sp
         , recs  = S.empty
@@ -257,14 +256,14 @@ grty = assmGrty defVars
 assmGrty f info = [ (x, val t) | (x, t) <- sigs, x `S.member` xs ]
   where
     xs          = S.fromList $ f info
-    sigs        = tySigs     $ spec info
+    sigs        = M.toList $ tySigs $ spec info
 
 grtyTop info     = forM topVs $ \v -> (v,) <$> trueTy (varType v)
   where
     topVs        = filter isTop $ defVars info
     isTop v      = isExportedId v && not (v `S.member` sigVs)
     isExportedId = flip elemNameSet (exports $ spec info) . getName
-    sigVs        = S.fromList [v | (v,_) <- tySigs (spec info) ++ asmSigs (spec info)]
+    sigVs        = S.fromList $ M.keys (tySigs $ spec info) ++ M.keys (asmSigs $ spec info)
 
 
 ------------------------------------------------------------------------
@@ -713,7 +712,7 @@ coreBindLits tce info
                 ++ [ (dconToSym dc, dconToSort dc) | dc <- dcons ]
   where
     lconsts      = literalConst tce <$> literals (cbs info)
-    dcons        = filter isDCon $ impVars info ++ (snd <$> freeSyms (spec info))
+    dcons        = filter isDCon $ impVars info ++ M.elems (freeSyms $ spec info)
     dconToSort   = typeSort tce . expandTypeSynonyms . varType
     dconToSym    = dataConSymbol . idDataCon
     isDCon x     = isDataConId x && not (hasBaseTypeVar x)

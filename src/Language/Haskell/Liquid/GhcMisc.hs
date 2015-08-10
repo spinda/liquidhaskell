@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP                       #-}
 {-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
@@ -69,6 +70,7 @@ import qualified Data.Text.Encoding           as T
 import qualified Data.Text.Unsafe             as T
 import           Control.Applicative          ((<$>), (<*>))
 import           Control.Arrow                (second)
+import           Control.Exception            (Exception, throwIO)
 import           Outputable                   (Outputable (..), text, ppr)
 import qualified Outputable                   as Out
 import           DynFlags
@@ -77,7 +79,8 @@ import qualified Text.PrettyPrint.HughesPJ    as PJ
 
 import Data.Monoid (mappend)
 
-import Language.Fixpoint.Names      (symSepName, isSuffixOfSym, singletonSym)
+import           Language.Fixpoint.Names      (symSepName, isSuffixOfSym, singletonSym)
+import qualified Language.Fixpoint.Types      as F
 
 
 #if __GLASGOW_HASKELL__ < 710
@@ -292,6 +295,12 @@ instance Show Class where
 instance Show TyCon where
   show = showPpr
 
+instance Show CoreExpr where
+  show = showPpr
+
+locatedSrcSpan     :: F.Located a -> SrcSpan
+locatedSrcSpan (F.Loc loc locE _) = mkSrcSpan (sourcePosSrcLoc loc) (sourcePosSrcLoc locE)
+
 sourcePosSrcSpan   :: SourcePos -> SrcSpan
 sourcePosSrcSpan = srcLocSpan . sourcePosSrcLoc
 
@@ -374,6 +383,14 @@ kindArity (ForAllTy _ res)
   = kindArity res
 kindArity _
   = 0
+
+
+throwGhc :: Exception e => e -> Ghc a
+throwGhc = liftIO . throwIO
+
+throwsGhc :: Exception [e] => [e] -> Ghc ()
+throwsGhc [] = return ()
+throwsGhc es = throwGhc es
 
 
 instance Hashable Name where
@@ -464,13 +481,21 @@ tyConTyVarsDef c | TC.isPromotedTyCon   c = error ("TyVars on " ++ show c) -- ty
 tyConTyVarsDef c | TC.isPromotedDataCon c = error ("TyVars on " ++ show c) -- DC.dataConUnivTyVars $ TC.datacon c
 tyConTyVarsDef c = TC.tyConTyVars c 
 
+-- FIXME: This should be "dataConWrapId", not "dataConWorkId", but the code
+--        makes this assumption everywhere else as well. We need to rework how
+--        we handle Ids/Vars in general.
 tyThingId_maybe :: TyThing -> Maybe Id
-tyThingId_maybe (AnId x) = Just x
-tyThingId_maybe _        = Nothing
+tyThingId_maybe (AnId x)                   = Just x
+tyThingId_maybe (AConLike (RealDataCon x)) = Just (DC.dataConWorkId x)
+tyThingId_maybe _                          = Nothing
 
 tyThingDataCon_maybe :: TyThing -> Maybe DataCon
 tyThingDataCon_maybe (AConLike (RealDataCon x)) = Just x
 tyThingDataCon_maybe _                          = Nothing
+
+tyThingTyCon_maybe :: TyThing -> Maybe TyCon
+tyThingTyCon_maybe (ATyCon x) = Just x
+tyThingTyCon_maybe _          = Nothing
 
 
 

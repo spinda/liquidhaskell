@@ -27,7 +27,7 @@ import qualified Language.Haskell.TH.Ppr    as TH
 import qualified Language.Haskell.TH.PprLib as TH
 import qualified Language.Haskell.TH.Syntax as TH
 
-import Language.Haskell.Liquid.RType
+import Language.Haskell.Liquid.TH.Types
 
 --------------------------------------------------------------------------------
 
@@ -57,7 +57,6 @@ data WiredIns =
     , pc_ECon      :: TyCon
     , pc_EVar      :: TyCon
     , pc_EParam    :: TyCon
-    , pc_ECtr      :: TyCon
     , pc_EApp      :: TyCon
     , pc_ENeg      :: TyCon
     , pc_EBin      :: TyCon
@@ -85,7 +84,7 @@ data WiredIns =
 loadWiredIns :: GhcMonad m => m WiredIns
 loadWiredIns = do
   ctxt <- getContext
-  setContext $ ctxt ++ [IIDecl $ simpleImportDecl $ mkModuleName "Language.Haskell.Liquid.RType"]
+  setContext $ ctxt ++ [IIDecl $ simpleImportDecl $ mkModuleName "Language.Haskell.Liquid.TH.Types"]
   wis  <- loadWiredIns'
   setContext $ ctxt
   return wis
@@ -116,7 +115,6 @@ loadWiredIns' = WiredIns
   <*> lookupPromoteTHDataCon 'ECon
   <*> lookupPromoteTHDataCon 'EVar
   <*> lookupPromoteTHDataCon 'EParam
-  <*> lookupPromoteTHDataCon 'ECtr
   <*> lookupPromoteTHDataCon 'EApp
   <*> lookupPromoteTHDataCon 'ENeg
   <*> lookupPromoteTHDataCon 'EBin

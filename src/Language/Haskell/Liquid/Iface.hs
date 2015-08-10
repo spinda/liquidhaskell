@@ -30,6 +30,7 @@ import Module
 import MonadUtils
 import PackageConfig
 import Packages
+import PrelNames
 import TcPluginM
 import UniqFM
 
@@ -61,14 +62,23 @@ tryLoadTargetIface cache loc fingerprint = do
   where
     path = mkIfacePath loc
 
-getHomeIface :: IfaceCache -> Module -> IO (IfaceData GhcSpec)
+getHomeIface :: IfaceCache -> Module -> TcPluginM (IfaceData GhcSpec)
 getHomeIface cache mod = do
-  cached <- lookupIfaceCache cache mod
+  cached <- tcPluginIO $ lookupIfaceCache cache mod
   case cached of
     Just ifaceData -> return ifaceData
-    Nothing        -> error $
-      "LiquidHaskell spec for home package dependency not loaded in time: "
-        ++ showPpr mod
+    Nothing -> do
+      found <- findIfaceForMod mod
+      ifaceData <- case found of
+        -- TODO: Any way we can handle this better?
+        --       Really, GHC should force a recompile if
+        --       using different plugins...
+        Nothing -> error $
+          "Missing .lqhi file for home module dependency "
+            ++ showPpr mod
+            ++ ". Clean and recompile, or re-run GHC with -fforce-recomp."
+        Just path -> readIfaceData path
+      ifaceData <$ tcPluginIO (extendIfaceCache cache ifaceData)
 
 getPkgIface :: IfaceCache -> Config -> Module -> TcPluginM (IfaceData GhcSpec)
 getPkgIface cache cfg mod = do
@@ -78,7 +88,7 @@ getPkgIface cache cfg mod = do
     Just ifaceData ->
       return ifaceData
     Nothing -> do
-      found     <- findPkgIface mod'
+      found     <- findIfaceForMod mod'
       ifaceData <- case found of
         Nothing   -> return $ emptyIfaceData mod'
         Just path -> readIfaceData path
@@ -98,27 +108,27 @@ putTargetIface cache path ifaceData = do
 --------------------------------------------------------------------------------
 
 rewriteWiredMod :: Config -> Module -> TcPluginM Module
-rewriteWiredMod cfg mod = do
-  pkg <- rewriteWiredPkg cfg $ modulePackageKey mod
-  return $ mod { modulePackageKey = pkg }
+rewriteWiredMod cfg mod
+  | not (noGhcPrimSpecs cfg) && pkg == primPackageKey = mkWiredModule mod "liquid-ghc-prim"
+  | not (noBaseSpecs    cfg) && pkg == basePackageKey = mkWiredModule mod "liquid-base"
+  | otherwise                                         = return mod
+  where
+    pkg = modulePackageKey mod
 
-rewriteWiredPkg :: Config -> PackageKey -> TcPluginM PackageKey
-rewriteWiredPkg cfg pkg
-  | pkg == primPackageKey && not (noGhcPrimSpecs cfg) = mkWiredPkgKey primPackageKey "liquid-ghc-prim"
-  | pkg == basePackageKey && not (noBaseSpecs    cfg) = mkWiredPkgKey basePackageKey "liquid-base"
-  | otherwise                                         = return pkg
-
-
-mkWiredPkgKey :: PackageKey -> String -> TcPluginM PackageKey
-mkWiredPkgKey orig name = do
+mkWiredModule :: Module -> String -> TcPluginM Module
+mkWiredModule mod name = do
   dflags         <- hsc_dflags <$> getTopEnv
-  let Just config = lookupPackage dflags orig
+  let Just config = lookupPackage dflags pkg
   let strPkgId    = name ++ '-' : showVersion (packageVersion config)
   let srcPkgId    = SourcePackageId $ mkFastString strPkgId
   let matches     = searchPackageId dflags srcPkgId
-  return $ case matches of
-    []        -> stringToPackageKey strPkgId
-    (match:_) -> packageKey match
+  let pkg'        = case matches of
+        []        -> stringToPackageKey strPkgId
+        (match:_) -> packageKey match
+  let mod'        = mkModuleName $ "Liquid." ++ moduleNameString (moduleName mod)
+  return $ mkModule pkg' mod'
+  where
+    pkg = modulePackageKey mod
 
 --------------------------------------------------------------------------------
 -- IfaceCache Type Internals ---------------------------------------------------

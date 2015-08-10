@@ -6,7 +6,7 @@
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE TypeSynonymInstances      #-}
 
-module Language.Haskell.Liquid.TransformRec (
+module Language.Haskell.Liquid.Pipeline.TransformRec (
      transformRecExpr, transformScope
      ) where
 

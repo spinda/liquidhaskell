@@ -44,10 +44,7 @@ targetFInfo info cgi
 targetQuals :: GhcInfo -> [F.Qualifier]
 targetQuals info = spcQs ++ genQs
   where
-    spcQs     = qualifiers spc
+    spcQs     = qualifiers $ spec info
     genQs     = specificationQualifiers n info
-    n         = maxParams $ config spc
-    spc       = spec info
-
-
+    n         = maxParams $ config info
 

@@ -3,7 +3,7 @@
 module Language.Haskell.Liquid.Iface.File (
     -- * Located Liquid Interface Files
     mkIfacePath
-  , findPkgIface
+  , findIfaceForMod
 
     -- * Read/Write Liquid Interface Files
   , writeIfaceData
@@ -38,8 +38,8 @@ import System.FilePath
 mkIfacePath :: ModLocation -> FilePath
 mkIfacePath = (`replaceExtension` "lqhi") . ml_hi_file
 
-findPkgIface :: Module -> TcPluginM (Maybe FilePath)
-findPkgIface mod
+findIfaceForMod :: Module -> TcPluginM (Maybe FilePath)
+findIfaceForMod mod
   | mod == gHC_PRIM = return Nothing
   | otherwise = do
     hscEnv <- getTopEnv
@@ -57,7 +57,7 @@ findPkgIface mod
 
 writeIfaceData :: FilePath -> IfaceData GhcSpec -> IO ()
 writeIfaceData path ifaceData = do
-  createDirectoryIfMissing False $ takeDirectory path
+  createDirectoryIfMissing True $ takeDirectory path
   writeIfaceFile path $ toIface ifaceData
 
 readIfaceData :: FilePath -> TcPluginM (IfaceData GhcSpec)

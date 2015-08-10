@@ -114,6 +114,14 @@ pad msg _ xs ys
 ordNub :: Ord a => [a] -> [a]
 ordNub = map head . L.group . L.sort
 
+dups :: (Eq a, Ord a) => [a] -> [[a]]
+dups = filter (not . null . tail) . L.group . L.sort
+
+dupsBy :: (a -> a -> Bool)
+       -> (a -> a -> Ordering)
+       -> [a] -> [[a]]
+dupsBy eq cmp = filter (not . null . tail) . L.groupBy eq . L.sortBy cmp
+
 intToString :: Int -> String
 intToString 1 = "1st"
 intToString 2 = "2nd"

@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeSynonymInstances      #-}
 {-# LANGUAGE TupleSections             #-}
 
-module Language.Haskell.Liquid.Plugin.Ghc (
+module Language.Haskell.Liquid.Pipeline.Ghc (
     -- * Extract All Information Needed for Verification
     getGhcInfo
   ) where
@@ -20,17 +20,18 @@ import CoreSyn
 import DataCon
 import DynFlags
 import ErrUtils
+import Exception
 import HscTypes hiding (Target)
 import IdInfo
 import InstEnv
+import Panic
 import Var
 
 import Control.Applicative hiding (empty)
 import Control.Monad (filterM, foldM, when, forM, forM_, liftM, void)
 
-import Data.Bifunctor
 import Data.Monoid hiding ((<>))
-import Data.List (find, nub)
+import Data.List (find, intercalate, nub)
 import Data.Maybe (catMaybes, maybeToList)
 
 import qualified Data.HashSet        as S
@@ -47,8 +48,6 @@ import Language.Fixpoint.Misc
 import Language.Fixpoint.Names
 import Language.Fixpoint.Types hiding (Result, Expr)
 
-import Language.Haskell.Liquid.ANFTransform
-import Language.Haskell.Liquid.CmdLine (withPragmas)
 import Language.Haskell.Liquid.Errors
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Misc
@@ -58,12 +57,14 @@ import Language.Haskell.Liquid.Spec
 import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.Visitors
 
+import Language.Haskell.Liquid.Pipeline.ANFTransform
+
 --------------------------------------------------------------------------------
 -- Extract All Information Needed for Verification -----------------------------
 --------------------------------------------------------------------------------
 
 getGhcInfo :: Config -> GhcSpec -> FilePath -> ModSummary -> Ghc GhcInfo
-getGhcInfo cfg scope hsFile summary = do
+getGhcInfo cfg scope hsFile summary = handleErrors $ do
   liftIO              $ cleanFiles hsFile
   summary'           <- updateDynFlags summary
 
@@ -88,15 +89,21 @@ getGhcInfo cfg scope hsFile summary = do
   let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
 
   setContext [IIModule $ moduleName $ ms_mod summary']
-  spec               <- makeGhcSpec cfg (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds scope
+  spec               <- makeGhcSpec (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds scope
 
   hqualFiles         <- liftIO $ moduleHquals hsFile
 
-  return              $ GI hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+  return              $ GI cfg hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+
+handleErrors :: Ghc a -> Ghc a
+handleErrors act = act
+  `gcatch` (\(e :: Error  ) -> pgmError $ show e)
+  `gcatch` (\(e :: [Error]) -> pgmError $ intercalate "\n\n" $ map show e)
+
 
 -- TODO: Rename, move?
 cleanFiles :: FilePath -> IO ()
-cleanFiles = createDirectoryIfMissing False . tempDirectory
+cleanFiles = createDirectoryIfMissing True . tempDirectory
 
 -- TODO: Ensure our modifications to the DynFlags meet three goals:
 --       (a) anything the module needs to compile, eg. extensions, persists;
@@ -120,6 +127,7 @@ updateDynFlags summary = do
                -- , verbosity = 3
                } `xopt_set` Opt_DataKinds
                  `xopt_set` Opt_LiberalTypeSynonyms
+                 `xopt_set` Opt_ConstraintKinds
                  `gopt_set` Opt_PIC
 #if __GLASGOW_HASKELL__ >= 710
                  `gopt_set` Opt_Debug
@@ -204,50 +212,4 @@ moduleHquals target
   = do hqs <- filterM doesFileExist [extFileName Hquals target]
        whenLoud $ putStrLn $ "Reading Qualifiers From: " ++ show hqs
        return hqs
-
---------------------------------------------------------------------------------
---- Pretty Printing GhcInfo ----------------------------------------------------
---------------------------------------------------------------------------------
-
--- TODO: Move these elsewhere?
-
-instance Show GhcInfo where
-  show = showpp
-
-instance PPrint GhcInfo where
-  pprint info =   (text "*************** Imports *********************")
-              $+$ (intersperse comma $ text <$> imports info)
-              $+$ (text "*************** Includes ********************")
-              $+$ (intersperse comma $ text <$> includes info)
-              $+$ (text "*************** Imported Variables **********")
-              $+$ (pprDoc $ impVars info)
-              $+$ (text "*************** Defined Variables ***********")
-              $+$ (pprDoc $ defVars info)
-              $+$ (text "*************** Specification ***************")
-              $+$ (pprint $ spec info)
-              $+$ (text "*************** Core Bindings ***************")
-              $+$ (pprint $ cbs info)
-
-instance PPrint GhcSpec where
-  pprint spec =  (text "******* Target Variables ********************")
-              $$ (pprint $ tgtVars spec)
-              $$ (text "******* Type Signatures *********************")
-              $$ (pprintLongList $ tySigs spec)
-              $$ (text "******* Type Synonyms ***********************")
-              $$ (pprintLongList $ M.toList $ rtEnv spec)
-              $$ (text "******* FTycon Embeds ***********************")
-              $$ (pprintLongList $ map (second fTyconSymbol) $ M.toList $ tcEmbeds spec)
-              $$ (text "******* Assumed Type Signatures *************")
-              $$ (pprintLongList $ asmSigs spec)
-              $$ (text "******* DataCon Specifications (Measure) ****")
-              $$ (pprintLongList $ ctors spec)
-              $$ (text "******* Measure Specifications **************")
-              $$ (pprintLongList $ M.toList $ meas spec)
-
-instance PPrint [CoreBind] where
-  pprint = pprDoc . tidyCBs
-
-instance PPrint TargetVars where
-  pprint AllVars   = text "All Variables"
-  pprint (Only vs) = text "Only Variables: " <+> pprint vs
 

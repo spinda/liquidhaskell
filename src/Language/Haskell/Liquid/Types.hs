@@ -19,6 +19,7 @@ module Language.Haskell.Liquid.Types (
 
   -- * Options
     Config (..)
+  , defaultConfig
 
   -- * Ghc Information
   , GhcInfo (..)
@@ -222,7 +223,7 @@ import qualified Control.Monad.Error as Ex
 import Control.DeepSeq
 import Control.Applicative                      ((<$>))
 import Data.Typeable                            (Typeable)
-import Data.Generics                            (Data)
+import Data.Data                                (Data)
 import Data.Monoid                              hiding ((<>))
 import qualified  Data.Foldable as F
 import            Data.Hashable
@@ -254,7 +255,8 @@ import Data.Default
 
 -- NOTE: adding strictness annotations breaks the help message
 data Config = Config {
-    diffcheck      :: Bool             -- ^ check subset of binders modified (+ dependencies) since last check
+    verbose        :: Bool             -- ^ turn on verbose output
+  , diffcheck      :: Bool             -- ^ check subset of binders modified (+ dependencies) since last check
   , real           :: Bool             -- ^ supports real number arithmetic
   , fullcheck      :: Bool             -- ^ check all binders (overrides diffcheck)
   , native         :: Bool             -- ^ use native (Haskell) fixpoint constraint solver
@@ -277,6 +279,33 @@ data Config = Config {
   , noGhcPrimSpecs :: Bool             -- ^ turn off wired-in specifications for the `ghc-prim` package
   , noBaseSpecs    :: Bool             -- ^ turn off wired-in specifications for the `base` package
   } deriving (Data, Typeable, Show, Eq)
+
+defaultConfig :: Config
+defaultConfig = Config
+  { verbose        = False
+  , diffcheck      = False
+  , real           = False
+  , fullcheck      = False
+  , native         = False
+  , binders        = []
+  , noVerify       = False
+  , noWriteIface   = False
+  , noCheckUnknown = False
+  , notermination  = False
+  , nowarnings     = False
+  , trustinternals = False
+  , nocaseexpand   = False
+  , strata         = False
+  , notruetypes    = False
+  , totality       = False
+  , noPrune        = False
+  , maxParams      = 2
+  , smtsolver      = Nothing
+  , shortNames     = False
+  , shortErrors    = False
+  , noGhcPrimSpecs = False
+  , noBaseSpecs    = False
+  }
 
 -----------------------------------------------------------------------------
 -- | Printer ----------------------------------------------------------------
@@ -321,7 +350,8 @@ ppEnvShort pp   = pp { ppShort = True }
 ------------------------------------------------------------------
 
 data GhcInfo = GI {
-    env      :: !HscEnv
+    config   :: !Config
+  , env      :: !HscEnv
   , cbs      :: ![CoreBind]
   , derVars  :: ![Var]
   , impVars  :: ![Var]
@@ -337,38 +367,33 @@ data GhcInfo = GI {
 -- parsing the target source and dependent libraries
 
 data GhcSpec = SP {
-    tySigs     :: ![(Var, Located SpecType)]     -- ^ Asserted Reftypes
-                                                 -- eg.  see include/Prelude.spec
-  , asmSigs    :: ![(Var, Located SpecType)]     -- ^ Assumed Reftypes
-  , ctors      :: ![(Id,  Located SpecType)]     -- ^ Data Constructor Measure Sigs
-                                                 -- eg.  (:) :: a -> xs:[a] -> {v: Int | v = 1 + len(xs) }
-  , meas       :: M.HashMap Var SpecMeasure      -- ^ Measures
-                                                 -- eg.  measure len :: [a] -> Int
-  , invariants :: ![Located SpecType]            -- ^ Data Type Invariants
-                                                 -- eg.  forall a. {v: [a] | len(v) >= 0}
+    tySigs     :: !(M.HashMap Var (Located SpecType))     -- ^ Asserted Reftypes
+                                                          -- eg.  see include/Prelude.spec
+  , asmSigs    :: !(M.HashMap Var (Located SpecType))     -- ^ Assumed Reftypes
+  , ctors      :: !(M.HashMap Id  (Located SpecType))     -- ^ Data Constructor Measure Sigs
+                                                          -- eg.  (:) :: a -> xs:[a] -> {v: Int | v = 1 + len(xs) }
+  , meas       :: !(M.HashMap Var SpecMeasure)            -- ^ Measures
+                                                          -- eg.  measure len :: [a] -> Int
+  , invariants :: ![Located SpecType]                     -- ^ Data Type Invariants
+                                                          -- eg.  forall a. {v: [a] | len(v) >= 0}
   , ialiases   :: ![(Located SpecType, Located SpecType)] -- ^ Data Type Invariant Aliases
-  , dconsP     :: ![(DataCon, DataConP)]         -- ^ Predicated Data-Constructors
-                                                 -- e.g. see tests/pos/Map.hs
-  , tconsP     :: ![(TyCon, TyConP)]             -- ^ Predicated Type-Constructors
-                                                 -- eg.  see tests/pos/Map.hs
-  , freeSyms   :: ![(Symbol, Var)]               -- ^ List of `Symbol` free in spec and corresponding GHC var
-                                                 -- eg. (Cons, Cons#7uz) from tests/pos/ex1.hs
-  , tcEmbeds   :: TCEmb TyCon                    -- ^ How to embed GHC Tycons into fixpoint sorts
-                                                 -- e.g. "embed Set as Set_set" from include/Data/Set.spec
-  , qualifiers :: ![Qualifier]                   -- ^ Qualifiers in Source/Spec files
-                                                 -- e.g tests/pos/qualTest.hs
-  , tgtVars    :: ![Var]                         -- ^ Top-level Binders To Verify (empty means ALL binders)
-  , decr       :: ![(Var, [Int])]                -- ^ Lexicographically ordered size witnesses for termination
-  , texprs     :: ![(Var, [Expr])]               -- ^ Lexicographically ordered expressions for termination
-  , lvars      :: !(S.HashSet Var)               -- ^ Variables that should be checked in the environment they are used
-  , lazy       :: !(S.HashSet Var)               -- ^ Binders to IGNORE during termination checking
-  , autosize   :: !(S.HashSet TyCon)             -- ^ Binders to IGNORE during termination checking
-  , config     :: !Config                        -- ^ Configuration Options
-  , exports    :: !NameSet                       -- ^ `Name`s exported by the module being verified
-  , tyconEnv   :: M.HashMap TyCon RTyCon
-  , dicts      :: DEnv Var SpecType              -- ^ Dictionary Environment
-  , rtEnv      :: RTEnv                          -- ^ Type Synonym Environment
-  , tinlines   :: M.HashMap Var TInline          -- ^ Inline Environment
+  , freeSyms   :: !(M.HashMap Symbol Var)                 -- ^ List of `Symbol` free in spec and corresponding GHC var
+                                                          -- eg. (Cons, Cons#7uz) from tests/pos/ex1.hs
+  , tcEmbeds   :: !(TCEmb TyCon)                          -- ^ How to embed GHC Tycons into fixpoint sorts
+                                                          -- e.g. "embed Set as Set_set" from include/Data/Set.spec
+  , qualifiers :: ![Qualifier]                            -- ^ Qualifiers in Source/Spec files
+                                                          -- e.g tests/pos/qualTest.hs
+  , tgtVars    :: ![Var]                                  -- ^ Top-level Binders To Verify (empty means ALL binders)
+  , decr       :: ![(Var, [Int])]                         -- ^ Lexicographically ordered size witnesses for termination
+  , texprs     :: ![(Var, [Expr])]                        -- ^ Lexicographically ordered expressions for termination
+  , lvars      :: !(S.HashSet Var)                        -- ^ Variables that should be checked in the environment they are used
+  , lazy       :: !(S.HashSet Var)                        -- ^ Binders to IGNORE during termination checking
+  , autosize   :: !(S.HashSet TyCon)                      -- ^ Binders to IGNORE during termination checking
+  , exports    :: !NameSet                                -- ^ `Name`s exported by the module being verified
+  , tyconEnv   :: !(M.HashMap TyCon RTyCon)               -- ^ Type constructor information (variance, etc)
+  , dicts      :: !(DEnv Var SpecType)                    -- ^ Dictionary Environment
+  , rtEnv      :: !RTEnv                                  -- ^ Type Synonym Environment
+  , tinlines   :: !(M.HashMap Var TInline)                -- ^ Inline Environment
   }
 
 type LogicMap = M.HashMap Symbol LMap
@@ -1106,6 +1131,12 @@ isTrivial t = foldReft (\r b -> isTauto r && b) True t
 instance Functor UReft where
   fmap f (U r p s) = U (f r) p s
 
+instance Foldable UReft where
+  foldMap f (U r _ _) = f r
+
+instance Traversable UReft where
+  traverse f (U r p s) = (\r' -> U r' p s) <$> f r
+
 instance Functor (RType a b) where
   fmap  = mapReft
 
@@ -1406,6 +1437,10 @@ instance PPrint EMsg where
 type Error = TError SpecType
 
 
+-- TODO: Prune out error types that are no longer relevant
+-- TODO: Do away with the `t` variable: it is never anything other than
+--       SpecType, and this causes us to have to write explicit signatures all
+--       over the place
 -- | INVARIANT : all Error constructors should have a pos field
 data TError t =
     ErrSubType { pos  :: !SrcSpan
@@ -1442,6 +1477,7 @@ data TError t =
                 , exp :: !Expr
                 , msg :: !Doc
                 } -- ^ sort error in specification
+
   | ErrDupAlias { pos  :: !SrcSpan
                 , var  :: !Doc
                 , kind :: !Doc
@@ -1452,6 +1488,31 @@ data TError t =
                 , var :: !Doc
                 , locs:: ![SrcSpan]
                 } -- ^ multiple specs for same binder error
+
+  | ErrDupLogic { pos   :: !SrcSpan
+                , var   :: !Doc
+                , decls :: ![(Doc, SrcSpan)]
+                } -- ^ multiple logical liftings for same binder error
+
+  | ErrAliasCtxt { pos :: !SrcSpan
+                 , var :: !Doc
+                 } -- ^ alias declaration outside .hsig or .hs-boot file
+
+  | ErrAliasTypes { pos   :: !SrcSpan
+                  , var   :: !Doc
+                  , tgt   :: !Doc
+                  , varTy :: !Type
+                  , tgtTy :: !Type
+                  } -- ^ alias type mismatch
+
+  | ErrDupEmbeds { pos   :: !SrcSpan
+                 , con   :: !Doc
+                 , decls :: ![(Doc, SrcSpan)]
+                 } -- ^ multiple logical liftings for same binder error
+
+  | ErrEmbedScope { pos :: !SrcSpan
+                  , tyc :: !Doc
+                  } -- ^ embed annotation on non-local tycon
 
   | ErrBadData  { pos :: !SrcSpan
                 , var :: !Doc

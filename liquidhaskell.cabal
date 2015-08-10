@@ -2,7 +2,7 @@ Name:                liquidhaskell
 Version:             0.4.1.1
 Copyright:           2010-15 Ranjit Jhala, University of California, San Diego.
 build-type:          Simple
-Synopsis:            Liquid Types for Haskell 
+Synopsis:            Liquid Types for Haskell
 Description:         Liquid Types for Haskell.
 Homepage:            http://goto.ucsd.edu/liquidhaskell
 License:             BSD3
@@ -55,32 +55,23 @@ Library
    Default-Language: Haskell98
    Build-Depends: base
                 , ghc>=7.8.3
-                , ansi-terminal
                 , template-haskell
-                , liquidhaskell-lang
                 , time
                 , array
                 , hpc
-                , bifunctors
                 , cmdargs
                 , containers
-                , cpphs
                 , data-default
                 , deepseq
                 , directory
                 , Diff
-                , filemanip
                 , filepath
-                , ghc-paths
                 , hscolour
                 , mtl
                 , parsec
                 , pretty
                 , process >= 1.2
-                , syb
                 , text
-                , intern
-                , vector
                 , hashable
                 , unordered-containers
                 , liquid-fixpoint >= 0.3
@@ -88,39 +79,28 @@ Library
                 , bytestring
                 , fingertree
                 , Cabal >= 1.18
- 
+
    hs-source-dirs:  src, include
- 
+
    Exposed-Modules: Language.Haskell.Liquid.Prelude,
-                    Language.Haskell.Liquid.Foreign, 
-                    Language.Haskell.Liquid.List, 
-                    Language.Haskell.Liquid.PrettyPrint, 
-                    Language.Haskell.Liquid.Constraint.Constraint, 
-                    Language.Haskell.Liquid.Constraint.Types, 
-                    Language.Haskell.Liquid.Constraint.Generate, 
-                    Language.Haskell.Liquid.Constraint.ToFixpoint, 
-                    Language.Haskell.Liquid.Measure, 
-                    Language.Haskell.Liquid.World, 
-                    Language.Haskell.Liquid.RefType, 
-                    Language.Haskell.Liquid.RefSplit, 
-                    Language.Haskell.Liquid.Errors, 
-                    Language.Haskell.Liquid.PredType, 
-                    Language.Haskell.Liquid.ACSS, 
-                    Language.Haskell.Liquid.DiffCheck, 
-                    Language.Haskell.Liquid.ANFTransform, 
-                    Language.Haskell.Liquid.Annotate, 
-                    Language.Haskell.Liquid.CTags,
-                    Language.Haskell.Liquid.CmdLine, 
-                    Language.Haskell.Liquid.GhcMisc, 
-                    Language.Haskell.Liquid.GhcPlay, 
-                    Language.Haskell.Liquid.Misc, 
-                    Language.Haskell.Liquid.CoreToLogic,
+                    Language.Haskell.Liquid.Foreign,
+                    Language.Haskell.Liquid.List,
+                    Language.Haskell.Liquid.PrettyPrint,
+                    Language.Haskell.Liquid.Measure,
+                    Language.Haskell.Liquid.World,
+                    Language.Haskell.Liquid.RefType,
+                    Language.Haskell.Liquid.RefSplit,
+                    Language.Haskell.Liquid.Errors,
+                    Language.Haskell.Liquid.PredType,
+                    Language.Haskell.Liquid.DiffCheck,
+                    Language.Haskell.Liquid.GhcMisc,
+                    Language.Haskell.Liquid.GhcPlay,
+                    Language.Haskell.Liquid.Misc,
                     Language.Haskell.Liquid.Variance,
                     Language.Haskell.Liquid.Bounds,
                     Language.Haskell.Liquid.Dictionaries,
-                    Language.Haskell.Liquid.Qualifier, 
-                    Language.Haskell.Liquid.TransformRec, 
-                    Language.Haskell.Liquid.Tidy, 
+                    Language.Haskell.Liquid.Qualifier,
+                    Language.Haskell.Liquid.Tidy,
                     Language.Haskell.Liquid.Types,
                     Language.Haskell.Liquid.Simplify,
                     Language.Haskell.Liquid.Literals,
@@ -130,12 +110,15 @@ Library
                     Language.Haskell.Liquid.WiredIn,
                     Language.Haskell.Liquid.Names,
                     Language.Haskell.Liquid.Cabal,
+                    Language.Haskell.Liquid.Parse,
                     Paths_liquidhaskell,
 
-                    Language.Haskell.Liquid.Plugin,
-                    Language.Haskell.Liquid.Plugin.Driver,
-                    Language.Haskell.Liquid.Plugin.Ghc,
-                    Language.Haskell.Liquid.Plugin.Misc,
+                    Language.Haskell.Liquid.Constraint
+                    Language.Haskell.Liquid.Constraint.Constraint,
+                    Language.Haskell.Liquid.Constraint.CTags,
+                    Language.Haskell.Liquid.Constraint.Generate,
+                    Language.Haskell.Liquid.Constraint.ToFixpoint,
+                    Language.Haskell.Liquid.Constraint.Types,
 
                     Language.Haskell.Liquid.Iface,
                     Language.Haskell.Liquid.Iface.Binary,
@@ -144,11 +127,37 @@ Library
                     Language.Haskell.Liquid.Iface.Ghc,
                     Language.Haskell.Liquid.Iface.Types,
 
+                    Language.Haskell.Liquid.Pipeline,
+                    Language.Haskell.Liquid.Pipeline.ACSS,
+                    Language.Haskell.Liquid.Pipeline.ANFTransform,
+                    Language.Haskell.Liquid.Pipeline.Annotate,
+                    Language.Haskell.Liquid.Pipeline.Ghc,
+                    Language.Haskell.Liquid.Pipeline.TransformRec,
+                    Language.Haskell.Liquid.Pipeline.Verify,
+
+                    Language.Haskell.Liquid.Plugin,
+                    Language.Haskell.Liquid.Plugin.Config,
+                    Language.Haskell.Liquid.Plugin.Driver,
+                    Language.Haskell.Liquid.Plugin.Misc,
+
                     Language.Haskell.Liquid.Spec,
+                    Language.Haskell.Liquid.Spec.Check,
+                    Language.Haskell.Liquid.Spec.CoreToLogic,
                     Language.Haskell.Liquid.Spec.Extract,
                     Language.Haskell.Liquid.Spec.Reify,
                     Language.Haskell.Liquid.Spec.WiredIns,
 
+                    Language.Haskell.Liquid.TH,
+                    Language.Haskell.Liquid.TH.Encode,
+                    Language.Haskell.Liquid.TH.Parse,
+                    Language.Haskell.Liquid.TH.Parse.Base,
+                    Language.Haskell.Liquid.TH.Parse.Dec,
+                    Language.Haskell.Liquid.TH.Parse.Reft,
+                    Language.Haskell.Liquid.TH.Parse.Type,
+                    Language.Haskell.Liquid.TH.Types,
+
+                    LiquidHaskell,
+                    LiquidHaskell_,
                     LiquidHaskell.Cabal,
                     LiquidHaskell.Plugin
 

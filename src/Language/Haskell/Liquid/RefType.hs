@@ -150,9 +150,9 @@ uTop r          = U r mempty mempty
 
 -- Monoid Instances ---------------------------------------------------------
 
-instance Monoid Config => Monoid GhcSpec where
+instance Monoid GhcSpec where
   mempty =
-    SP [] [] [] mempty [] [] [] [] [] mempty [] [] [] [] mempty mempty mempty mempty mempty mempty mempty mempty mempty
+    SP mempty mempty mempty mempty [] [] mempty mempty [] [] [] [] mempty mempty mempty mempty mempty mempty mempty mempty
   mappend sp1 sp2 =
     SP { tySigs     = mappend (tySigs     sp1) (tySigs     sp2)
        , asmSigs    = mappend (asmSigs    sp1) (asmSigs    sp2)
@@ -160,8 +160,6 @@ instance Monoid Config => Monoid GhcSpec where
        , meas       = mappend (meas       sp1) (meas       sp2)
        , invariants = mappend (invariants sp1) (invariants sp2)
        , ialiases   = mappend (ialiases   sp1) (ialiases   sp2)
-       , dconsP     = mappend (dconsP     sp1) (dconsP     sp2)
-       , tconsP     = mappend (tconsP     sp1) (tconsP     sp2)
        , freeSyms   = mappend (freeSyms   sp1) (freeSyms   sp2)
        , tcEmbeds   = mappend (tcEmbeds   sp1) (tcEmbeds   sp2)
        , qualifiers = mappend (qualifiers sp1) (qualifiers sp2)
@@ -171,7 +169,6 @@ instance Monoid Config => Monoid GhcSpec where
        , lvars      = mappend (lvars      sp1) (lvars      sp2)
        , lazy       = mappend (lazy       sp1) (lazy       sp2)
        , autosize   = mappend (autosize   sp1) (autosize   sp2)
-       , config     = mappend (config     sp1) (config     sp2)
        , tyconEnv   = mappend (tyconEnv   sp1) (tyconEnv   sp2)
        , dicts      = mappend (dicts      sp1) (dicts      sp2)
        , exports    = unionNameSet (exports sp1) (exports sp2)

@@ -12,7 +12,6 @@ import           Control.Applicative                 ((<$>), (<*>))
 import           Control.Arrow                       (second)
 import           Control.Exception                   (Exception (..))
 import           Data.Aeson
-import           Data.Generics                       (everywhere, mkT)
 import qualified Data.HashMap.Strict                 as M
 import qualified Data.HashSet                        as S
 import           Data.Hashable
@@ -119,10 +118,29 @@ instance PPrint Error where
 
 ppSpecTypeErr   :: SpecType -> Doc
 ppSpecTypeErr
-  = rtypeDoc Lossy . tidySpecType Lossy . fmap (everywhere (mkT noCasts))
+  = rtypeDoc Lossy . tidySpecType Lossy . fmap noCasts_UReft
   where
-    noCasts (ECst x _) = x
-    noCasts e          = e
+    noCasts_UReft (U r p s) = U (mapPredReft noCasts_Pred r) p s
+    
+    noCasts_Pred (PBexp e      ) = PBexp $ noCasts_Expr e
+    noCasts_Pred (PAtom b e1 e2) = PAtom b (noCasts_Expr e1) (noCasts_Expr e2)
+    noCasts_Pred (PAnd ps      ) = PAnd $ map noCasts_Pred ps
+    noCasts_Pred (POr  ps      ) = POr  $ map noCasts_Pred ps
+    noCasts_Pred (PNot p       ) = PNot $ noCasts_Pred p
+    noCasts_Pred (PImp p1 p2   ) = PImp (noCasts_Pred p1) (noCasts_Pred p2)
+    noCasts_Pred (PIff p1 p2   ) = PIff (noCasts_Pred p1) (noCasts_Pred p2)
+    noCasts_Pred (PAll as p    ) = PAll as $ noCasts_Pred p
+    noCasts_Pred (PKVar kv su  ) = PKVar kv $ noCasts_Subst su
+    noCasts_Pred p               = p
+
+    noCasts_Subst (Su ss) = Su $ map (second noCasts_Expr) ss
+
+    noCasts_Expr (ECst x _    ) = x
+    noCasts_Expr (EApp ls es  ) = EApp ls $ map noCasts_Expr es
+    noCasts_Expr (ENeg e      ) = ENeg $ noCasts_Expr e
+    noCasts_Expr (EBin b e1 e2) = EBin b (noCasts_Expr e1) (noCasts_Expr e2)
+    noCasts_Expr (EIte p e1 e2) = EIte (noCasts_Pred p) (noCasts_Expr e1) (noCasts_Expr e2)
+    noCasts_Expr e              = e
 
 -- full = isNontrivialVV $ rTypeValueVar t =
 
@@ -226,6 +244,29 @@ ppError' _ dSp (ErrDupAlias _ k v ls)
   = dSp <+> text "Multiple Declarations! "
     $+$ (nest 2 $ text "Multiple Declarations of" <+> pprint k <+> ppVar v $+$ text "Declared at:")
     <+> (nest 4 $ vcat $ pprint <$> ls)
+
+ppError' _ dSp (ErrDupLogic _ v ds)
+  = dSp <+> text "Multiple Lift-to-Logic Declarations for" <+> v
+    $+$ (nest 4 $ vcat $ map ofDup ds)
+  where
+    ofDup (k, s) = k <+> text "at" <+> pprint s
+
+ppError' _ dSp (ErrDupEmbeds _ c ds)
+  = dSp <+> text "Multiple Embed Declarations for" <+> c
+    $+$ (nest 4 $ vcat $ map ofDup ds)
+  where
+    ofDup (f, s) = f <+> text "at" <+> pprint s
+
+ppError' _ dSp (ErrEmbedScope _ c)
+  = dSp <+> text "Embed declarations are not allowed on an imported type constructor:" <+> c
+
+ppError' _ dSp (ErrAliasCtxt _ v)
+  = dSp <+> text "Logic aliases are only allowed in .hsig or .hs-boot files: " <+> v
+
+ppError' _ dSp (ErrAliasTypes _ v v' t t')
+  = dSp <+> text "Cannot alias" <+> v <+> text "as" <+> v' <> text ": incompatible types:"
+    $+$ (nest 4 $ text "alias:   " <+> pprint t)
+    $+$ (nest 4 $ text "original:" <+> pprint t')
 
 ppError' _ dSp (ErrUnbound _ x)
   = dSp <+> text "Unbound variable"

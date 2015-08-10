@@ -20,7 +20,6 @@ import Data.List (partition)
 import Data.Maybe
 import Data.Hashable
 import Data.Monoid
-import Data.Bifunctor
 
 import qualified Data.HashMap.Strict as M
 import Control.Applicative           ((<$>))
@@ -65,10 +64,6 @@ instance (PPrint e, PPrint t) => (PPrint (Bound t e)) where
 
 pprint_bsyms [] = text ""
 pprint_bsyms xs = text "\\" <+> pprint xs <+> text "->"
-
-instance Bifunctor Bound where
-        first  f (Bound s vs ps xs e) = Bound s (f <$> vs) (mapSnd f <$> ps) (mapSnd f <$> xs) e
-        second f (Bound s vs ps xs e) = Bound s vs ps xs (f e)
 
 
 makeBound :: (PPrint r, UReftable r)
