@@ -1,12 +1,3 @@
-{-
-
-Strange Fixpoint error:
-
-syntax error at ./.liquid/Abs.hs.fq: 1.53
-Fatal error: exception Parsing.Parse_error
-
--}
-
 {-# LANGUAGE QuasiQuotes #-}
 
 module Abs () where

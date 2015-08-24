@@ -1,12 +1,3 @@
-{-
-
-Strange Fixpoint parse error:
-
-syntax error at ./.liquid/ite1.hs.fq: 1.53
-Fatal error: exception Parsing.Parse_error
-
--}
-
 {-# LANGUAGE QuasiQuotes #-}
 
 module Test0 () where
