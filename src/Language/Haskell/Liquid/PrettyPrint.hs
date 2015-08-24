@@ -47,6 +47,7 @@ import Data.List    (sort, sortBy)
 import Data.Function (on)
 import Data.Monoid   (mempty)
 import qualified Data.HashMap.Strict as M
+import qualified Language.Haskell.TH.Syntax as TH
 
 
 
@@ -98,6 +99,9 @@ instance Show Predicate where
 
 instance PPrint FTycon where
   pprint = pprint . val . fTyconSymbol
+
+instance PPrint TH.Name where
+  pprint = text . show
 
 
 -- | Printing an Ordered List

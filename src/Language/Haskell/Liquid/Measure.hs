@@ -59,7 +59,7 @@ instance PPrint Def where
 
 -- MOVE TO TYPES
 instance (PPrint t, PPrint a) => PPrint (Measure t a) where
-  pprint (M n s defs) = pprint n <> text " :: " <> pprint s
+  pprint (M s defs) = text " :: " <> pprint s
                      $$ pprintLongList defs
 
 -- MOVE TO TYPES
@@ -107,12 +107,12 @@ bodyPred fv (R v' p) = subst1 p (v', fv)
 
 -- | A wired-in measure @strLen@ that describes the length of a string
 -- literal, with type @Addr#@.
-strLen :: Measure SpecType id
-strLen = M { name = dummyLoc "strLen"
-           , sort = ofType (mkFunTy addrPrimTy intTy)
-           , defs = []
-           }
+strLen :: (LocSymbol, Measure SpecType id)
+strLen = (dummyLoc "strLen",
+  M { sort = ofType (mkFunTy addrPrimTy intTy)
+    , defs = []
+    })
 
-wiredInMeasures :: [Measure SpecType id]
+wiredInMeasures :: [(LocSymbol, Measure SpecType id)]
 wiredInMeasures = [strLen]
 

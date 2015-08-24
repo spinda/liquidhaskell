@@ -59,8 +59,8 @@ logicType τ = fromRTypeRep $ t{ty_res = res, ty_binds = binds, ty_args = args, 
     
 
     mkResType t 
-     | isBool t   = propType
-     | otherwise  = t
+     {-| isBool t   = propType
+     | otherwise-}  = t
 
 isBool (RApp (RTyCon{rtc_tc = c}) _ _ _) = c == boolTyCon
 isBool _ = False
@@ -74,10 +74,10 @@ CASE2: measure f@logic :: X -> Y    <=> f@haskell :: x:X -> {v:Y    | v = (f@log
 
 strengthenResult :: Var -> SpecType -> SpecType
 strengthenResult v t
-  | isBool res
+{-  | isBool res
   = -- traceShow ("Type for " ++ showPpr v ++ "\t OF \t" ++ show (ty_binds rep)) $  
     fromRTypeRep $ rep{ty_res = res `strengthen` r}
-  | otherwise
+  | otherwise-}
   = -- traceShow ("Type for " ++ showPpr v ++ "\t OF \t" ++ show (ty_binds rep)) $ 
     fromRTypeRep $ rep{ty_res = res `strengthen` r'}
   where rep = toRTypeRep t

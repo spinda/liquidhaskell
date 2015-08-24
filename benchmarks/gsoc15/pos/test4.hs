@@ -4,12 +4,12 @@ module Test4 () where
 
 import LiquidHaskell
 
-thing1 :: a -> [lq| a |]
+[lq| thing1 :: a -> a |]
 thing1 x = x
 
-thing2 :: Int -> [lq| a |] -> a
+[lq| thing2 :: Int -> a -> a |]
 thing2 _ x = x
 
-thing3 :: [lq| a -> a |]
+[lq| thing3 :: a -> a |]
 thing3 x = x
 

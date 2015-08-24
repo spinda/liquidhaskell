@@ -48,7 +48,7 @@ data IfaceData spec = ID { ifaceModule       :: !Module
 data IfaceSpec = IS { ifaceTySigs     :: ![(Name, Located IfaceType)]
                     , ifaceAsmSigs    :: ![(Name, Located IfaceType)]
                     , ifaceCtors      :: ![(Name, Located IfaceType)]
-                    , ifaceMeas       :: ![(Name, IfaceMeasure)]
+                    , ifaceMeas       :: ![(LocSymbol, IfaceMeasure)]
                     , ifaceInvariants :: ![Located IfaceType]
                     , ifaceIAliases   :: ![(Located IfaceType, Located IfaceType)]
                     , ifaceFreeSyms   :: ![(Symbol, Name)]

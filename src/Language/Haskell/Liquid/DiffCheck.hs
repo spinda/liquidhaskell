@@ -148,7 +148,7 @@ sigVars ls sp = M.filter ok $ specSigs sp
 globalDiff :: [Int] -> GhcSpec -> Bool
 globalDiff ls sp = measDiff || invsDiff
   where
-    measDiff  = any (isDiff ls) (name <$> M.elems (meas sp))
+    measDiff  = any (isDiff ls) (M.keys $ meas sp)
     invsDiff  = any (isDiff ls) (invariants   sp)
 
 isDiff :: [Int] -> Located a -> Bool

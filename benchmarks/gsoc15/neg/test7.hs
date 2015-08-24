@@ -9,6 +9,6 @@ gt x y = x > y
 
 [lq| type IntGT X = { v:Int | gt v X } |]
 
-thing :: [lq| x:Int |] -> [lq| IntGT {x} |]
+[lq| thing :: x:Int -> IntGT {x} |]
 thing x = 0
 

@@ -6,6 +6,6 @@ import LiquidHaskell
 
 data Wow = Yes | No
 
-no :: [lq| { v:Wow | v == No } |]
+[lq| no :: { v:Wow | v == No } |]
 no = Yes
 

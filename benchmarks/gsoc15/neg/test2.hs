@@ -4,11 +4,11 @@ module Test0 () where
 
 import LiquidHaskell
 
-type Nat = [lq| { v:Int | 0 <= v } |]
+[lq| type Nat = { v:Int | 0 <= v } |]
 
-ok :: Nat -> Nat
+[lq| ok :: Nat -> Nat |]
 ok x = hi
   where
-    hi :: Nat
+    hi :: [lq| Nat |]
     hi = -1
 

@@ -4,8 +4,8 @@ module Test0 () where
 
 import LiquidHaskell
 
-type Pos = [lq| {v:Int | 0 < v} |]
+[lq| type Pos = {v:Int | 0 < v} |]
 
-bad :: Pos -> Pos
+[lq| bad :: Pos -> Pos |]
 bad x = 0
 

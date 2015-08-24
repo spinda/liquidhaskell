@@ -5,14 +5,22 @@ module Language.Haskell.Liquid.TH.Parse.Dec (
 import Control.Monad
 import Control.Monad.Trans
 
+import Data.List
 import Data.Maybe
 
-import Language.Haskell.TH.Syntax
+import Language.Haskell.TH.Syntax hiding (Loc)
 
 import Text.Parsec
 import Text.Parsec.Combinator
 
-import Language.Haskell.Liquid.TH.Encode
+import Language.Fixpoint.Types
+
+import Language.Haskell.Liquid.RefType (quantifyFreeRTy)
+import Language.Haskell.Liquid.Types
+
+import Language.Haskell.Liquid.TH.Misc
+import Language.Haskell.Liquid.TH.Simplify
+import Language.Haskell.Liquid.TH.Types
 
 import Language.Haskell.Liquid.TH.Parse.Base
 import Language.Haskell.Liquid.TH.Parse.Type
@@ -24,10 +32,8 @@ import Language.Haskell.Liquid.TH.Parse.Type
 decP :: Parser [Dec]
 decP = choice
   [ embedP
-  , inlineP
-  , boundP
-  , measureP
-  , aliasP
+  , logicP
+--  , dataP
   , tySynP
   , fnSigP
   ]
@@ -38,59 +44,80 @@ decP = choice
 
 embedP :: Parser [Dec]
 embedP = do
-  tc  <- reserved "embed" *> (tyConP <|> tyConOpP <|> parens tyConOpP)
-  fc  <- reserved "as"    *> located fTyconP
-  tc' <- liftP $ fromMaybe (mkName tc) <$> lookupTypeName tc
-  ifSimplified [] [annEmbedAs tc' fc]
+  (s, tc) <- reserved "embed" *> withSpan (tyConP <|> tyConOpP <|> parens tyConOpP)
+  fc      <- reserved "as"    *> located fTyconP
+  tc'     <- liftP $ fromMaybe (mkName tc) <$> lookupTypeName tc
+  ann     <- dataToExpP $ EmbedAs fc s
+  ifSimplified [] [PragmaD $ AnnP (TypeAnnotation tc') ann]
 
 --------------------------------------------------------------------------------
 -- Inline, Bound, and Measure Annotations --------------------------------------
 --------------------------------------------------------------------------------
 
--- TODO: Handle cases where these are function names, not keywords
+logicP :: Parser [Dec]
+logicP = do
+  k       <- modifier logicKindP
+  assumed <- optionBool $ modifier $ reserved "assume"
+  (s, v)  <- withSpan $ mkName <$> varidP
+  sig     <- option [] $ fnSigP' s v assumed
+  ann     <- dataToExpP $ LiftToLogic k s
+  ifSimplified sig (PragmaD (AnnP (ValueAnnotation v) ann) : sig)
 
-inlineP :: Parser [Dec]
-inlineP = do
-  var <- reserved "inline" *> located (mkName <$> varidP)
-  sig <- option [] $ fnSigP' $ val var
-  ifSimplified sig ([annIsInline var Nothing] ++ sig)
+logicKindP :: Parser LogicKind
+logicKindP = (InlineKind  <$ reserved "inline")
+         <|> (BoundKind   <$ reserved "bound")
+         <|> (MeasureKind <$ reserved "measure")
 
-boundP :: Parser [Dec]
-boundP = do
-  var <- reserved "bound" *> located (mkName <$> varidP)
-  sig <- option [] $ fnSigP' $ val var
-  ifSimplified sig ([annIsBound var Nothing] ++ sig)
+--------------------------------------------------------------------------------
+-- Data Declarations -----------------------------------------------------------
+--------------------------------------------------------------------------------
+ 
+{-
+dataP :: Parser [Dec]
+dataP = do
+  (cxt, tc, tvs) <- reserved   "data" *> dataHeadP
+  cons           <- reservedOp "="    *> sepBy1 dataConP (reservedOp "|")
+  drv            <- option [] $ reserved "deriving" *> dataDerivP
 
-measureP :: Parser [Dec]
-measureP = do
-  var <- reserved "measure" *> located (mkName <$> varidP)
-  sig <- option [] $ fnSigP' $ val var
-  ifSimplified sig ([annIsMeasure var Nothing] ++ sig)
-
-
-aliasP :: Parser [Dec]
-aliasP = do
-  ann <- reserved "alias" *> kind
-  var <- located (mkName <$> varidP)
-  tgt <- reservedOp "=" *> located varidP
-  ifSimplified [] [ann var $ Just tgt]
+dataHeadP :: Parser ([AnnoType], Name, [String])
+dataHeadP = (go =<< typeP) <?> "data declaration head"
   where
-    kind = annIsInline  <$ reserved "inline"
-       <|> annIsBound   <$ reserved "bound"
-       <|> annIsMeasure <$ reserved "measure"
+    go (Loc p _ ty)
+      | isTrivial ty
+      , not $ isWiredInName $ val c
+      , all isRVar ts
+      , (cxt, RApp c ts [] _) <- splitCxtArrowRTy ty =
+        return (cxt, val c, rt_var <$> ts)
+      | otherwise = failAt p "malformed data declaration head"
+
+dataConP ::
+
+dataDerivP :: Parser [(Name, [AnnoType])]
+dataDerivP = (go =<< typeP) <?> "data deriving list"
+  where
+    go (Loc p _ ty)
+      | not $ isTrivial ty = malformed p
+      | otherwise          = mapM (go' p) (splitTuplesRTy ty)
+
+    go' _ (RApp c ts [] _) = return (c, ts)
+    go' p _                = malformed p
+
+    malformed p = failAt p " malformed data deriving list"
+-}
 
 --------------------------------------------------------------------------------
 -- Type Synonym Declarations ---------------------------------------------------
 --------------------------------------------------------------------------------
 
 tySynP :: Parser [Dec]
-tySynP = named "type synonym" $ do
-  con       <- (liftP . newName) =<< reserved "type" *> tyConP
-  tvs       <- map (PlainTV . mkName) <$> many tyVarP
-  evs       <- located exprParamsP
-  (_, ty)   <- reservedOp "=" *> withExprParams (val evs) typeP
-  let tySynD = TySynD con tvs ty
-  ifSimplified [tySynD] [tySynD, annExprParams con evs]
+tySynP = do
+  (s, con) <- reserved "type" *> withSpan ((liftP . newName) =<< tyConP)
+  tvs      <- map (PlainTV . mkName) <$> many tyVarP
+  evs      <- exprParamsP
+  rhs      <- reservedOp "=" *> withExprParams evs typeP
+  let decl  = TySynD con tvs $ simplifyRTy $ val rhs
+  ann      <- dataToExpP $ LiquidSyn evs rhs s
+  ifSimplified [decl] [PragmaD $ AnnP (TypeAnnotation con) ann, decl]
 
 exprParamsP :: Parser [String]
 exprParamsP = do
@@ -107,13 +134,24 @@ exprParamsP = do
 --------------------------------------------------------------------------------
 
 fnSigP :: Parser [Dec]
-fnSigP = named "signature" $ fnSigP' =<< (mkName <$> varidP)
+fnSigP = do
+  assumed  <- optionBool $ modifier $ reserved "assume"
+  (s, var) <- withSpan $ mkName <$> (parens operator <|> varidP)
+  fnSigP' s var assumed
 
-fnSigP' :: Name -> Parser [Dec]
-fnSigP' var = named "signature" $
-  reservedOp "::" *> fmap (return . SigD var . quantify) typeP
-  where
-    quantify (tvs, ty) = ForallT (map PlainTV tvs) [] ty
+fnSigP' :: SourceSpan -> Name -> Bool -> Parser [Dec]
+fnSigP' s var assumed = reservedOp "::" *> do
+  ty       <- fmap quantifyFreeRTy <$> typeP
+  let decl  = SigD var $ simplifyRTy $ val ty
+  ann      <- dataToExpP $ LiquidVar True assumed ty s
+  ifSimplified [decl] [PragmaD $ AnnP (ValueAnnotation var) ann, decl]
+
+--------------------------------------------------------------------------------
+-- Utility Functions -----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+modifier :: Parser a -> Parser a
+modifier p = try $ p <* notFollowedBy (reservedOp "::")
 
 --------------------------------------------------------------------------------
 -- Error Messages --------------------------------------------------------------

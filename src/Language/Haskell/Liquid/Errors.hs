@@ -207,6 +207,11 @@ ppError' _ dSp (ErrTySpec _ v t s)
     $+$ (pprint v <+> dcolon <+> pprint t)
     $+$ (nest 4 $ pprint s)
 
+ppError' _ dSp (ErrSynSort _ v t s)
+  = dSp <+> text "Bad Type Synonym"
+    $+$ (pprint v <+> dcolon <+> pprint t)
+    $+$ (nest 4 $ pprint s)
+
 ppError' _ dSp (ErrBadData _ v s)
   = dSp <+> text "Bad Data Specification"
     $+$ (pprint v <+> dcolon <+> pprint s)
@@ -215,6 +220,9 @@ ppError' _ dSp (ErrTermSpec _ v e s)
   = dSp <+> text "Bad Termination Specification"
     $+$ (pprint v <+> dcolon <+> pprint e)
     $+$ (nest 4 $ pprint s)
+
+ppError' _ dSp (ErrNotInScope _ d t)
+  = dSp <+> text "Not in scope:" <+> d <+> "`" <> t <> "'"
 
 ppError' _ dSp (ErrInvt _ t s)
   = dSp <+> text "Bad Invariant Specification"
@@ -232,8 +240,8 @@ ppError' _ dSp (ErrMeas _ t s)
   = dSp <+> text "Bad Measure Specification"
     $+$ (nest 4 $ text "measure " <+> pprint t $+$ pprint s)
 
-ppError' _ dSp (ErrHMeas _ t s)
-  = dSp <+> text "Cannot promote Haskell function" <+> pprint t <+> text "to logic"
+ppError' _ dSp (ErrLiftToLogic _ v d s)
+  = dSp <+> text "Cannot promote Haskell function" <+> v <+> text "to logic" <+> d
     $+$ (nest 4 $ pprint s)
 
 ppError' _ dSp (ErrDupSpecs _ v ls)
@@ -281,14 +289,41 @@ ppError' _ dSp (ErrMismatch _ x τ t)
     $+$ text "Haskell:" <+> pprint τ
     $+$ text "Liquid :" <+> pprint t
 
-ppError' _ dSp (ErrAliasCycle _ acycle)
-  = dSp <+> text "Cyclic Alias Definitions"
-    $+$ text "The following alias definitions form a cycle:"
-    $+$ (nest 4 $ sepVcat blankLine $ map describe acycle)
+ppError' _ dSp (ErrInlineCycle _ cycle)
+  = dSp <+> text "Cyclic Inline Definitions"
+    $+$ text "The following inline definitions form a cycle (inlines cannot be recursive):"
+    $+$ (nest 4 $ sepVcat blankLine $ map describe cycle)
   where
     describe (pos, name)
-      = text "Type alias:"     <+> pprint name
-        $+$ text "Defined at:" <+> pprint pos
+      = text "Inline function:" <+> pprint name
+        $+$ text "Defined at:"  <+> pprint pos
+
+ppError' _ dSp (ErrSynCycle _ cycle)
+  = dSp <+> text "Cyclic Type Synonym Definitions"
+    $+$ text "The following type synonym definitions form a cycle:"
+    $+$ (nest 4 $ sepVcat blankLine $ map describe cycle)
+  where
+    describe (pos, name)
+      = text "Type synonym:" <+> pprint name
+        $+$ text "Defined at:"  <+> pprint pos
+
+ppError' _ dSp (ErrExprArgCount _ c n d t)
+  = dSp <+> text "Wrong number of expression arguments for" <+> c
+    $+$ parens (text "expected" <+> pprint d <> comma <+> text "saw" <+> pprint n)
+    $+$ text "In the type application:" <+> pprint t
+
+ppError' _ dSp (ErrInlineArgsCount _ v n d e)
+  = dSp <+> text "Wrong number of arguments to inline" <+> v
+    $+$ parens (text "expected" <+> pprint d <> comma <+> text "saw" <+> pprint n)
+    $+$ text "In the inline application:" <+> pprint e
+
+ppError' _ dSp (ErrExprArgPos _ t)
+  = dSp <+> text "Expression arguments may only appear at the end of a type application"
+    $+$ text "In the type application:" <+> pprint t
+
+ppError' _ dSp (ErrPredInExpr _ e)
+  = dSp <+> text "Cannot use predicate in expression context:"
+    $+$ (nest 4 $ pprint e)
 
 ppError' _ dSp (ErrIllegalAliasApp _ dn dl)
   = dSp <+> text "Refinement Type Alias cannot be used in this context"

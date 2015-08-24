@@ -39,7 +39,7 @@ targetFInfo info cgi
    where
     spc    = spec info
     tce    = tcEmbeds spc
-    mkSort = varSymbol *** (rTypeSortedReft tce . sort)
+    mkSort = val *** (rTypeSortedReft tce . sort)
 
 targetQuals :: GhcInfo -> [F.Qualifier]
 targetQuals info = spcQs ++ genQs

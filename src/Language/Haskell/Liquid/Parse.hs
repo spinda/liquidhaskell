@@ -14,6 +14,7 @@ module Language.Haskell.Liquid.Parse (
     -- * Position Information
   , position
   , withPos
+  , located
 
     -- * Errors
   , formatError
@@ -25,9 +26,10 @@ module Language.Haskell.Liquid.Parse (
     -- * Parsing Utility Functions
   , named
   , unspacedIdent
+  , optionBool
 
     -- * Language Definition
-  , reserved, reservedOp
+  , reserved, reservedOp, operator
   , whiteSpace, lexeme
   , natural
   , braces, brackets, parens
@@ -58,6 +60,8 @@ import Text.Parsec.Token (GenLanguageDef(..))
 
 import qualified Text.Parsec       as P
 import qualified Text.Parsec.Token as T
+
+import Language.Fixpoint.Types (Located(..))
 
 --------------------------------------------------------------------------------
 -- Parser Type -----------------------------------------------------------------
@@ -114,9 +118,10 @@ shiftPos start pos = setSourceLine (setSourceColumn pos col') line'
     line  = sourceLine   pos
     col   = sourceColumn pos
 
-    line' = line + sourceLine start - 1
-    col'  | line == 1 = col + sourceColumn start - 1
+    line' = line + sourceLine start
+    col'  | line == 1 = col + sourceColumn start
           | otherwise = col
+
 
 position :: Monad m => ParserT s m SourcePos
 position = do
@@ -129,6 +134,13 @@ withPos p = do
   a <- p
   return (s, a)
 
+located :: Monad m => ParserT s m a -> ParserT s m (Located a)
+located p = do
+  s <- position
+  a <- p
+  e <- position -- TODO: End position minus whitespace!
+  return $ Loc s e a
+
 --------------------------------------------------------------------------------
 -- Errors ----------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -136,8 +148,8 @@ withPos p = do
 formatError :: String -> ParseError -> String
 formatError src err = unlines $ x : line : caret : xs
   where
-    line   = lines src !! sourceLine pos
-    caret  = replicate (sourceColumn pos) ' ' ++ "^"
+    line   = lines src !! (sourceLine pos - 1)
+    caret  = replicate (sourceColumn pos - 1) ' '++ "^"
     (x:xs) = lines $ show err
     pos    = errorPos err
 
@@ -173,6 +185,9 @@ unspacedIdent def = try $ do
      else return name
   where
     reservedSet = S.fromList $ T.reservedNames def
+
+optionBool :: Monad m => ParserT s m a -> ParserT s m Bool
+optionBool p = option False (True <$ p)
 
 --------------------------------------------------------------------------------
 -- Language Definition ---------------------------------------------------------
@@ -224,6 +239,9 @@ haskellStyle = emptyDef
 reserved, reservedOp :: Monad m => String -> ParserT s m ()
 reserved   = T.reserved haskell
 reservedOp = T.reservedOp haskell
+
+operator :: Monad m => ParserT s m String
+operator = T.operator haskell
 
 
 whiteSpace :: Monad m => ParserT s m ()

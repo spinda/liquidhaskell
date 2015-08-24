@@ -36,7 +36,7 @@ module Language.Haskell.Liquid.RefType (
   -- TODO: categorize these!
   , ofType, toType
   , rTyVar, rVar, rApp, rEx
-  , symbolRTyVar
+  , plainRTyVar, stringRTyVar, symbolRTyVar
   , addTyConInfo
   -- , expandRApp
   , appRTyCon
@@ -47,6 +47,7 @@ module Language.Haskell.Liquid.RefType (
   , subsTyVar_meet, subsTyVars_meet, subsTyVar_nomeet, subsTyVars_nomeet
   , dataConSymbol, dataConMsReft, dataConReft
   , classBinds
+  , quantifyRTy, quantifyFreeRTy
 
   , isSizeable
   , appSizeFun
@@ -70,6 +71,7 @@ import FamInstEnv (emptyFamInstEnv)
 import Var
 import GHC              hiding (Located)
 import DataCon
+import Name
 import NameSet
 import qualified TyCon  as TC
 import TypeRep          hiding (maybeParen, pprArrowChain)
@@ -287,7 +289,7 @@ instance (SubsTy Symbol (RType c Symbol ()) c, TyConable c, Reftable r, PPrint r
 -- MOVE TO TYPES
 instance (Reftable r, PPrint r) => RefTypable RTyCon RTyVar r where
 --   ppCls   = ppClassClassPred
-  ppRType = ppr_rtype ppEnv
+  ppRType = ppr_rtype (PP True True True False)
 
 -- MOVE TO TYPES
 class FreeVar a v where
@@ -373,7 +375,9 @@ instance Hashable RTyCon where
 rVar        = (`RVar` mempty) . RTV
 rTyVar      = RTV
 
-symbolRTyVar = rTyVar . stringTyVar . symbolString
+plainRTyVar  = stringRTyVar . getOccString
+stringRTyVar = rTyVar . stringTyVar
+symbolRTyVar = stringRTyVar . symbolString
 
 normalizePds t = addPds ps t'
   where (t', ps) = nlzP [] t
@@ -381,6 +385,12 @@ normalizePds t = addPds ps t'
 rPred     = RAllP
 rEx xts t = foldr (\(x, tx) t -> REx x tx t) t xts
 rApp c    = RApp (RTyCon c [] (mkTyConInfo c [] [] Nothing))
+
+quantifyRTy :: [tv] -> RType c tv r -> RType c tv r
+quantifyRTy tvs ty = foldr RAllT ty tvs
+
+quantifyFreeRTy :: Eq tv => RType c tv r -> RType c tv r
+quantifyFreeRTy ty = quantifyRTy (freeTyVars ty) ty
 
 --- NV TODO : remove this code!!!
 
@@ -811,13 +821,6 @@ instance SubsTy RTyVar RTyVar SpecType where
 instance SubsTy RTyVar RSort RSort where
   subt (α, τ) = subsTyVar_meet (α, τ, ofRSort τ)
 
--- Here the "String" is a Bare-TyCon. TODO: wrap in newtype
-instance SubsTy Symbol BSort LocSymbol where
-  subt _ t = t
-
-instance SubsTy Symbol BSort BSort where
-  subt (α, τ) = subsTyVar_meet (α, τ, ofRSort τ)
-
 instance (SubsTy tv ty (UReft r), SubsTy tv ty (RType c tv ())) => SubsTy tv ty (RTProp c tv (UReft r))  where
   subt m (RPropP ss p) = RPropP ((mapSnd (subt m)) <$> ss) $ subt m p
   subt m (RProp  ss t) = RProp ((mapSnd (subt m)) <$> ss) $ fmap (subt m) t
@@ -867,9 +870,9 @@ dataConSymbol = symbol . dataConWorkId
 dataConReft ::  DataCon -> [Symbol] -> Reft
 dataConReft c []
   | c == trueDataCon
-  = predReft $ eProp vv_
+  = predReft $ PBexp $ eVar vv_-- eProp vv_
   | c == falseDataCon
-  = predReft $ PNot $ eProp vv_
+  = predReft $ PNot $ PBexp $ eVar vv_ -- eProp vv_
 
 dataConReft c [x]
   | c == intDataCon
@@ -919,10 +922,7 @@ toType (RAllS _ t)
 toType (RVar (RTV α) _)
   = TyVarTy α
 toType (RApp (RTyCon {rtc_tc = c}) ts _ _)
-  = TyConApp c (toType <$> filter notExprArg ts)
-  where
-  notExprArg (RExprArg _) = False
-  notExprArg _            = True
+  = TyConApp c (toType <$> filter (not . isExprArg) ts)
 toType (RAllE _ _ t)
   = toType t
 toType (REx _ _ t)

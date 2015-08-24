@@ -10,6 +10,6 @@ data L a = N | C a (L a)
 len N        = 0
 len (C x xs) = 1 + len xs
 
-[lq| empty :: { v:(L Int) | len v = 0 } |]
+[lq| empty :: { v:L Int | len v = 0 } |]
 empty = N
 

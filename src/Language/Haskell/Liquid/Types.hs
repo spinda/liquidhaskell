@@ -68,16 +68,16 @@ module Language.Haskell.Liquid.Types (
   , UReft(..)
 
   -- * Parse-time entities describing refined data types
-  , DataDecl (..)
+ -- , DataDecl (..)
   , DataConP (..)
   , TyConP (..)
 
   -- * Pre-instantiated RType
-  , RRType, BRType, RRProp
-  , BSort, BPVar
+  , RRType, ARType, RRProp
+  , ASort, APVar
 
   -- * Instantiated RType
-  , BareType, PrType
+  , AnnoType, PrType
   , SpecType, SpecProp
   , RSort
   , UsedPVar, RPVar, RReft
@@ -95,6 +95,8 @@ module Language.Haskell.Liquid.Types (
   -- * Some tests on RTypes
   , isBase
   , isFunTy
+  , isRVar
+  , isExprArg
   , isTrivial
 
   -- * Traversing `RType`
@@ -247,64 +249,65 @@ import CoreSyn (CoreBind)
 import Language.Haskell.Liquid.Variance
 import Language.Haskell.Liquid.Misc (mapSndM, safeZip3WithError)
 
+import qualified Language.Haskell.TH.Syntax as TH
+
 
 import Data.Default
+
 -----------------------------------------------------------------------------
 -- | Command Line Config Options --------------------------------------------
 -----------------------------------------------------------------------------
 
 -- NOTE: adding strictness annotations breaks the help message
 data Config = Config {
-    verbose        :: Bool             -- ^ turn on verbose output
-  , diffcheck      :: Bool             -- ^ check subset of binders modified (+ dependencies) since last check
-  , real           :: Bool             -- ^ supports real number arithmetic
-  , fullcheck      :: Bool             -- ^ check all binders (overrides diffcheck)
-  , native         :: Bool             -- ^ use native (Haskell) fixpoint constraint solver
-  , binders        :: [String]         -- ^ set of binders to check
-  , noVerify       :: Bool             -- ^ skip verification (default: False)
-  , noWriteIface   :: Bool             -- ^ skip producing a .lqhi file for verified modules
-  , noCheckUnknown :: Bool             -- ^ whether to complain about specifications for unexported and unused values
-  , notermination  :: Bool             -- ^ disable termination check
-  , nowarnings     :: Bool             -- ^ disable warnings output (only show errors)
-  , trustinternals :: Bool             -- ^ type all internal variables with true
-  , nocaseexpand   :: Bool             -- ^ disable case expand
-  , strata         :: Bool             -- ^ enable strata analysis
-  , notruetypes    :: Bool             -- ^ disable truing top level types
-  , totality       :: Bool             -- ^ check totality in definitions
-  , noPrune        :: Bool             -- ^ disable prunning unsorted Refinements
-  , maxParams      :: Int              -- ^ the maximum number of parameters to accept when mining qualifiers
-  , smtsolver      :: Maybe SMTSolver  -- ^ name of smtsolver to use [default: try z3, cvc4, mathsat in order]
-  , shortNames     :: Bool             -- ^ drop module qualifers from pretty-printed names.
-  , shortErrors    :: Bool             -- ^ don't show subtyping errors and contexts.
-  , noGhcPrimSpecs :: Bool             -- ^ turn off wired-in specifications for the `ghc-prim` package
-  , noBaseSpecs    :: Bool             -- ^ turn off wired-in specifications for the `base` package
+    verbose           :: Bool             -- ^ turn on verbose output
+  , diffcheck         :: Bool             -- ^ check subset of binders modified (+ dependencies) since last check
+  , real              :: Bool             -- ^ supports real number arithmetic
+  , fullcheck         :: Bool             -- ^ check all binders (overrides diffcheck)
+  , native            :: Bool             -- ^ use native (Haskell) fixpoint constraint solver
+  , binders           :: [String]         -- ^ set of binders to check
+  , noVerify          :: Bool             -- ^ skip verification (default: False)
+  , noWriteIface      :: Bool             -- ^ skip producing a .lqhi file for verified modules
+  , noCheckUnknown    :: Bool             -- ^ whether to complain about specifications for unexported and unused values
+  , notermination     :: Bool             -- ^ disable termination check
+  , nowarnings        :: Bool             -- ^ disable warnings output (only show errors)
+  , trustinternals    :: Bool             -- ^ type all internal variables with true
+  , nocaseexpand      :: Bool             -- ^ disable case expand
+  , strata            :: Bool             -- ^ enable strata analysis
+  , notruetypes       :: Bool             -- ^ disable truing top level types
+  , totality          :: Bool             -- ^ check totality in definitions
+  , noPrune           :: Bool             -- ^ disable prunning unsorted Refinements
+  , maxParams         :: Int              -- ^ the maximum number of parameters to accept when mining qualifiers
+  , smtsolver         :: Maybe SMTSolver  -- ^ name of smtsolver to use [default: try z3, cvc4, mathsat in order]
+  , shortNames        :: Bool             -- ^ drop module qualifers from pretty-printed names.
+  , shortErrors       :: Bool             -- ^ don't show subtyping errors and contexts.
+  , noWiredInSpecs    :: Bool             -- ^ turn off wired-in specifications for core packages
   } deriving (Data, Typeable, Show, Eq)
 
 defaultConfig :: Config
 defaultConfig = Config
-  { verbose        = False
-  , diffcheck      = False
-  , real           = False
-  , fullcheck      = False
-  , native         = False
-  , binders        = []
-  , noVerify       = False
-  , noWriteIface   = False
-  , noCheckUnknown = False
-  , notermination  = False
-  , nowarnings     = False
-  , trustinternals = False
-  , nocaseexpand   = False
-  , strata         = False
-  , notruetypes    = False
-  , totality       = False
-  , noPrune        = False
-  , maxParams      = 2
-  , smtsolver      = Nothing
-  , shortNames     = False
-  , shortErrors    = False
-  , noGhcPrimSpecs = False
-  , noBaseSpecs    = False
+  { verbose           = False
+  , diffcheck         = False
+  , real              = False
+  , fullcheck         = False
+  , native            = False
+  , binders           = []
+  , noVerify          = False
+  , noWriteIface      = False
+  , noCheckUnknown    = False
+  , notermination     = False
+  , nowarnings        = False
+  , trustinternals    = False
+  , nocaseexpand      = False
+  , strata            = False
+  , notruetypes       = False
+  , totality          = False
+  , noPrune           = False
+  , maxParams         = 2
+  , smtsolver         = Nothing
+  , shortNames        = False
+  , shortErrors       = False
+  , noWiredInSpecs    = False
   }
 
 -----------------------------------------------------------------------------
@@ -372,7 +375,7 @@ data GhcSpec = SP {
   , asmSigs    :: !(M.HashMap Var (Located SpecType))     -- ^ Assumed Reftypes
   , ctors      :: !(M.HashMap Id  (Located SpecType))     -- ^ Data Constructor Measure Sigs
                                                           -- eg.  (:) :: a -> xs:[a] -> {v: Int | v = 1 + len(xs) }
-  , meas       :: !(M.HashMap Var SpecMeasure)            -- ^ Measures
+  , meas       :: !(M.HashMap LocSymbol SpecMeasure)      -- ^ Measures
                                                           -- eg.  measure len :: [a] -> Int
   , invariants :: ![Located SpecType]                     -- ^ Data Type Invariants
                                                           -- eg.  forall a. {v: [a] | len(v) >= 0}
@@ -749,28 +752,28 @@ type RTProp c tv r = Ref (RType c tv ()) r (RType c tv r)
 --   2. There is at most one `HVar` in a list.
 
 newtype World t = World [HSeg t]
-                deriving (Generic, Data, Typeable)
+                deriving (Generic, Data, Typeable, Functor, F.Foldable, Traversable)
 
 data    HSeg  t = HBind {hs_addr :: !Symbol, hs_val :: t}
                 | HVar UsedPVar
-                deriving (Generic, Data, Typeable)
+                deriving (Generic, Data, Typeable, Functor, F.Foldable, Traversable)
 
 data UReft r
   = U { ur_reft :: !r, ur_pred :: !Predicate, ur_strata :: !Strata }
     deriving (Generic, Data, Typeable)
 
-type BRType     = RType LocSymbol Symbol
-type RRType     = RType RTyCon    RTyVar
+type ARType     = RType (Located TH.Name) String
+type RRType     = RType RTyCon            RTyVar
 
-type BSort      = BRType    ()
+type ASort      = ARType    ()
 type RSort      = RRType    ()
 
-type BPVar      = PVar      BSort
+type APVar      = PVar      ASort
 type RPVar      = PVar      RSort
 
 type RReft      = UReft     Reft
 type PrType     = RRType    Predicate
-type BareType   = BRType    RReft
+type AnnoType   = ARType    RReft
 type SpecType   = RRType    RReft
 type SpecProp   = RRProp    RReft
 type RRProp r   = Ref       RSort r (RRType r)
@@ -885,6 +888,7 @@ instance Functor RInstance where
 
 
 -- | Data type refinements
+{-
 data DataDecl   = D { tycName   :: LocSymbol
                                 -- ^ Type  Constructor Name
                     , tycTyVars :: [Symbol]
@@ -902,7 +906,6 @@ data DataDecl   = D { tycName   :: LocSymbol
                     }
      --              deriving (Show)
 
-
 instance Eq DataDecl where
    d1 == d2 = (tycName d1) == (tycName d2)
 
@@ -914,6 +917,7 @@ instance Show DataDecl where
   show dd = printf "DataDecl: data = %s, tyvars = %s"
               (show $ tycName   dd)
               (show $ tycTyVars dd)
+-}
 
 ------------------------------------------------------------------------
 -- | Constructor and Destructors for RTypes ----------------------------
@@ -1037,12 +1041,17 @@ class Reftable r => UReftable r where
   ofUReft :: UReft Reft -> r
   ofUReft (U r _ _) = ofReft r
 
+  toUReft :: r -> UReft Reft
+  toUReft r = U (toReft r) mempty mempty
+
 
 instance UReftable (UReft Reft) where
    ofUReft r = r
+   toUReft r = r
 
 instance UReftable () where
    ofUReft _ = mempty
+   toUReft  _ = mempty
 
 instance (PPrint r, Reftable r) => Reftable (UReft r) where
   isTauto            = isTauto_ureft
@@ -1186,6 +1195,12 @@ isFunTy (RAllT _ t)      = isFunTy t
 isFunTy (RAllP _ t)      = isFunTy t
 isFunTy (RFun _ _ _ _)   = True
 isFunTy _                = False
+
+isRVar (RVar _ _) = True
+isRVar _          = False
+
+isExprArg (RExprArg _)   = True
+isExprArg _              = False
 
 
 mapReftM :: (Monad m) => (r1 -> m r2) -> RType c tv r1 -> m (RType c tv r2)
@@ -1472,6 +1487,12 @@ data TError t =
                 , msg :: !Doc
                 } -- ^ sort error in specification
 
+  | ErrSynSort  { pos :: !SrcSpan
+                , con :: !Doc
+                , typ :: !t
+                , msg :: !Doc
+                } -- ^ sort error in type synonym
+
   | ErrTermSpec { pos :: !SrcSpan
                 , var :: !Doc
                 , exp :: !Expr
@@ -1519,6 +1540,11 @@ data TError t =
                 , msg :: !Doc
                 } -- ^ multiple specs for same binder error
 
+  | ErrNotInScope { pos :: !SrcSpan
+                  , dsc :: !Doc
+                  , tgt :: !Doc
+                  } -- ^ not-in-scope error
+
   | ErrInvt     { pos :: !SrcSpan
                 , inv :: !t
                 , msg :: !Doc
@@ -1540,10 +1566,11 @@ data TError t =
                 , msg :: !Doc
                 } -- ^ Measure sort error
 
-  | ErrHMeas    { pos :: !SrcSpan
-                , ms  :: !Symbol
-                , msg :: !Doc
-                } -- ^ Haskell bad Measure error
+  | ErrLiftToLogic { pos :: !SrcSpan
+                   , var :: !Doc
+                   , dsc :: !Doc
+                   , msg :: !Doc
+                   } -- ^ Lift-to-logic error
 
   | ErrUnbound  { pos :: !SrcSpan
                 , var :: !Doc
@@ -1559,9 +1586,35 @@ data TError t =
                 , lq   :: !Type
                 } -- ^ Mismatch between Liquid and Haskell types
 
-  | ErrAliasCycle { pos    :: !SrcSpan
-                  , acycle :: ![(SrcSpan, Doc)]
-                  } -- ^ Cyclic Refined Type Alias Definitions
+  | ErrInlineCycle { pos   :: !SrcSpan
+                   , cycle :: ![(SrcSpan, Doc)]
+                   } -- ^ Cyclic Inline Definitions
+
+  | ErrSynCycle { pos   :: !SrcSpan
+                , cycle :: ![(SrcSpan, Doc)]
+                } -- ^ Cyclic Type Synonym Definitions
+
+  | ErrExprArgCount { pos   :: !SrcSpan
+                    , con   :: !Doc
+                    , nargs :: !Int
+                    , dargs :: !Int
+                    , typ   :: !t
+                    }
+
+  | ErrInlineArgsCount { pos   :: !SrcSpan
+                       , var   :: !Doc
+                       , nargs :: !Int
+                       , dargs :: !Int
+                       , exp   :: !Expr
+                       }
+
+  | ErrExprArgPos { pos :: !SrcSpan
+                  , typ :: !t
+                  }
+
+  | ErrPredInExpr { pos :: !SrcSpan
+                  , exp :: !Expr
+                  }
 
   | ErrIllegalAliasApp { pos   :: !SrcSpan
                        , dname :: !Doc
@@ -1689,8 +1742,8 @@ type RTEnv = M.HashMap TyCon (RTAlias RTyVar SpecType)
 data RTAlias tv ty
   = RTA { rtTArgs :: [tv]
         , rtEArgs :: [Symbol]
-        , rtBody  :: ty
-        }
+        , rtBody  :: Located ty
+        } deriving (Data, Typeable, Generic, Functor, F.Foldable, Traversable)
 
 cinfoError (Ci _ (Just e)) = e
 cinfoError (Ci l _)        = errOther $ text $ "Cinfo:" ++ showPpr l
@@ -1710,8 +1763,7 @@ data TInline = TI { tiargs :: [Symbol]
 type SpecMeasure = Measure SpecType Id
 
 data Measure ty id = M {
-    name :: LocSymbol
-  , sort :: ty
+    sort :: ty
   , defs :: [(id, ty)]
   } deriving (Data, Typeable)
 
@@ -1737,10 +1789,10 @@ data Body
   deriving (Show, Eq, Data, Typeable)
 
 instance Subable ty => Subable (Measure ty id) where
-  syms (M _ _ es)      = concatMap (syms . snd) es
-  substa f  (M n s es) = M n s $ second (substa f ) <$> es
-  substf f  (M n s es) = M n s $ second (substf f ) <$> es
-  subst  su (M n s es) = M n s $ second (subst  su) <$> es
+  syms (M _ es)      = concatMap (syms . snd) es
+  substa f  (M s es) = M s $ second (substa f ) <$> es
+  substf f  (M s es) = M s $ second (substf f ) <$> es
+  subst  su (M s es) = M s $ second (subst  su) <$> es
 
 instance Subable Def where
   syms (Def _ sp _ _ sb bd)  = (fst <$> sp) ++ (fst <$> sb) ++ syms bd

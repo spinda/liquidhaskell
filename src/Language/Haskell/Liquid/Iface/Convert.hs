@@ -86,7 +86,7 @@ instance Iface GhcSpec IfaceSpec where
     IS { ifaceTySigs     = ofTySig <$> filter isExported (M.toList tySigs)
        , ifaceAsmSigs    = ofTySig <$> filter isExported (M.toList asmSigs)
        , ifaceCtors      = ofTySig <$> filter isExported (M.toList ctors)
-       , ifaceMeas       = ofMeasure <$> M.toList meas
+       , ifaceMeas       = second toIface <$> M.toList meas
        , ifaceInvariants = fmap toIface <$> invariants
        , ifaceIAliases   = ofIAlias <$> ialiases
        , ifaceFreeSyms   = second getName <$> M.toList freeSyms
@@ -101,7 +101,6 @@ instance Iface GhcSpec IfaceSpec where
       isExported (id, _) =
         isDataConWorkId id || elemNameSet (getName id) exports
       ofTySig    = getName      *** fmap toIface
-      ofMeasure  = getName      *** toIface
       ofIAlias   = fmap toIface *** fmap toIface
       ofTyConEnv = toIfaceTyCon *** toIface
       ofRTAlias  = toIfaceTyCon *** toIface
@@ -110,7 +109,7 @@ instance Iface GhcSpec IfaceSpec where
     tySigs     <- M.fromList <$> mapM ofTySig ifaceTySigs
     asmSigs    <- M.fromList <$> mapM ofTySig ifaceAsmSigs
     ctors      <- M.fromList <$> mapM ofTySig ifaceCtors
-    meas       <- M.fromList <$> mapM ofMeasure ifaceMeas
+    meas       <- M.fromList <$> mapM (secondM fromIface) ifaceMeas
     invariants <- mapM (traverse fromIface) ifaceInvariants
     ialiases   <- mapM ofIAlias ifaceIAliases
     freeSyms   <- M.fromList <$> mapM (secondM lookupIfaceVar) ifaceFreeSyms
@@ -135,7 +134,6 @@ instance Iface GhcSpec IfaceSpec where
       }
     where
       ofTySig    (v, t) = (,) <$> lookupIfaceVar v     <*> traverse fromIface t
-      ofMeasure  (v, m) = (,) <$> lookupIfaceVar v     <*> fromIface m
       ofIAlias   (x, y) = (,) <$> traverse fromIface x <*> traverse fromIface y
       ofTyConEnv (t, i) = (,) <$> tcIfaceTyCon t       <*> fromIface i
       ofRTAlias  (t, a) = (,) <$> tcIfaceTyCon t       <*> fromIface a
@@ -159,7 +157,7 @@ instance Iface (RRType r) (IRType r) where
   fromIface (RFun b i o r) =
     RFun b <$> fromIface i <*> fromIface o <*> pure r
   fromIface (RAllT tv ty) =
-    bindIfaceTyVar (tv, toIfaceKind liftedTypeKind) $ \tv' -> RAllT (rTyVar tv') <$> fromIface ty
+    bindIfaceTyVar (mkIfaceTvBndr tv) $ \tv' -> RAllT (rTyVar tv') <$> fromIface ty
   fromIface (RAllP pv ty) =
     RAllP <$> fromIface pv <*> fromIface ty
   fromIface (RAllS sb ty) =
@@ -181,9 +179,9 @@ instance Iface (RRType r) (IRType r) where
 
 instance Iface SpecMeasure IfaceMeasure where
   toIface M{..} =
-    M name (toIface sort) (map (getName *** toIface) defs)
+    M (toIface sort) (map (getName *** toIface) defs)
   fromIface M{..} =
-    M name <$> fromIface sort <*> mapM ofDef defs
+    M <$> fromIface sort <*> mapM ofDef defs
     where
       ofDef (dc, ty) = (,) <$> lookupIfaceVar dc <*> fromIface ty
 
@@ -235,9 +233,10 @@ instance Iface s i => Iface (HSeg s) (HSeg i) where
 
 instance Iface (RTAlias RTyVar SpecType) (RTAlias IfLclName IfaceType) where
   toIface (RTA ts es b) =
-    RTA (toIface <$> ts) es (toIface b)
+    RTA (toIface <$> ts) es (toIface <$> b)
   fromIface (RTA ts es b) =
-    RTA <$> mapM fromIface ts <*> pure es <*> fromIface b
+    bindIfaceTyVars (map mkIfaceTvBndr ts) $ \ts' ->
+      RTA (map rTyVar ts') es <$> traverse fromIface b
 
 --------------------------------------------------------------------------------
 -- Utiliy Functions ------------------------------------------------------------
@@ -248,4 +247,7 @@ lookupIfaceVar = fmap ofThing . tcIfaceGlobal
   where
     ofThing (AnId x) = x
     ofThing thing    = error $ "Bad result in lookupIfaceVar: " ++ showPpr thing
+
+mkIfaceTvBndr :: IfLclName -> IfaceTvBndr
+mkIfaceTvBndr tv = (tv, toIfaceKind liftedTypeKind)
 

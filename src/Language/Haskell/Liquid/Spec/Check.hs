@@ -54,6 +54,7 @@ checkGhcSpec cbs fullSpec@SP{tcEmbeds=emb} SP{..} =
      concatMap (checkSig emb env) (M.toList tySigs)
   ++ concatMap (checkSig emb env) (M.toList asmSigs)
   ++ concatMap (checkSig emb env) (M.toList ctors)
+  ++ concatMap (checkSyn emb env) (M.toList rtEnv)
   ++ concatMap (checkInv emb env) invariants
   ++ concatMap (checkIAl emb env) ialiases
   where
@@ -82,6 +83,17 @@ checkSig :: TCEmb TyCon -> SEnv SortedReft -> (Var, Located SpecType) -> [Error]
 checkSig emb env (var, ty) = checkRType mkErr emb env (val ty)
   where
     mkErr = ErrTySpec (locatedSrcSpan ty) (pprint var) (val ty)
+
+-- TODO: To sort-check type synonyms, we need to plug the expression parameters
+--       into the sort checker's environment. But they don't have sorts
+--       attached, so I don't know what to do for that. Can we "infer" sorts
+--       for these parameters?
+checkSyn :: TCEmb TyCon -> SEnv SortedReft -> (TyCon, RTAlias RTyVar SpecType) -> [Error]
+checkSyn _ _ _ = [] 
+{-checkSyn emb env (tc, RTA _ es b) = checkRType mkErr emb env' (val b)
+  where
+    mkErr = ErrSynSort (locatedSrcSpan b) (pprint tc) (val b)
+    env'  = -}
 
 checkInv :: TCEmb TyCon -> SEnv SortedReft -> Located SpecType -> [Error]
 checkInv emb env ty = checkRType mkErr emb env (val ty)
@@ -123,14 +135,14 @@ checkReft mkErr emb env (Just ty) _ =
 -- Duplication Checking --------------------------------------------------------
 --------------------------------------------------------------------------------
 
-checkDupLogic :: [Located Var] -> [Located Var] -> [Error]
+checkDupLogic :: [LocSymbol] -> [LocSymbol] -> [Error]
 checkDupLogic inlines meas = map mkErr ds
   where
     ds = dupsBy ((==) `on` snd) (compare `on` snd) ls
     ls = map ("inline", ) inlines ++ map ("measure", ) meas
 
-    mkErr xs@((_, lv):_) =
-      ErrDupLogic (locatedSrcSpan lv) (pprint $ val lv) $
+    mkErr xs@((_, name):_) =
+      ErrDupLogic (locatedSrcSpan name) (pprint $ val name) $
         map (text *** locatedSrcSpan) xs
     mkErr [] = error "checkDupLogic.mkError: empty list"
 

@@ -4,8 +4,8 @@ module Test1 () where
 
 import LiquidHaskell
 
-type Nat = [lq| { v:Int | 0 <= v } |]
+[lq| type Nat = { v:Int | 0 <= v } |]
 
-bad :: Int -> Nat
+[lq| bad :: Int -> Nat |]
 bad x = x + 1
 

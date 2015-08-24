@@ -58,6 +58,7 @@ import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.Visitors
 
 import Language.Haskell.Liquid.Pipeline.ANFTransform
+import Language.Haskell.Liquid.Pipeline.Rewrite
 
 --------------------------------------------------------------------------------
 -- Extract All Information Needed for Verification -----------------------------
@@ -69,7 +70,7 @@ getGhcInfo cfg scope hsFile summary = handleErrors $ do
   summary'           <- updateDynFlags summary
 
   parsed             <- parseModule summary'
-  let parsed'         = replaceModule (mkModuleName "LiquidHaskell") (mkModuleName "LiquidHaskell_") parsed
+  let parsed'         = rewriteModule parsed
   typechecked        <- typecheckModule $ ignoreInline parsed'
   desugared          <- desugarModule typechecked
   loadModule desugared
@@ -89,7 +90,7 @@ getGhcInfo cfg scope hsFile summary = handleErrors $ do
   let derVs           = derivedVars coreBinds $ fmap (fmap is_dfun) $ mgi_cls_inst modguts
 
   setContext [IIModule $ moduleName $ ms_mod summary']
-  spec               <- makeGhcSpec (mgi_exports modguts) typechecked (impVs ++ defVs) (mg_anns $ dm_core_module desugared) coreBinds scope
+  spec               <- makeGhcSpec (mgi_exports modguts) typechecked (impVs ++ defVs) letVs (mg_anns $ dm_core_module desugared) coreBinds scope
 
   hqualFiles         <- liftIO $ moduleHquals hsFile
 
@@ -125,30 +126,12 @@ updateDynFlags summary = do
                -- prevent GHC from printing anything
                , log_action         = \_ _ _ _ _ -> return ()
                -- , verbosity = 3
-               } `xopt_set` Opt_DataKinds
-                 `xopt_set` Opt_LiberalTypeSynonyms
-                 `xopt_set` Opt_ConstraintKinds
-                 `gopt_set` Opt_PIC
+               } `gopt_set` Opt_PIC
 #if __GLASGOW_HASKELL__ >= 710
                  `gopt_set` Opt_Debug
 #endif
   setSessionDynFlags $ df'
   return $ summary { ms_hspp_opts = df' }
-
-replaceModule :: ModuleName -> ModuleName -> ParsedModule -> ParsedModule
-replaceModule orig repl pm@(ParsedModule summary source _ _) =
-  pm { pm_mod_summary =
-         summary { ms_textual_imps = map (fmap go) $ ms_textual_imps summary
-                 }
-     , pm_parsed_source =
-         fmap (\src -> src { hsmodImports = map (fmap go) $ hsmodImports src }) source
-     }
-  where
-    go decl@(ImportDecl { ideclName = idn })
-      = decl { ideclName = fmap go' idn }
-    go' mod
-      | mod == orig = repl
-      | otherwise   = mod
 
 --------------------------------------------------------------------------------
 -- Extract Vars from Module ----------------------------------------------------

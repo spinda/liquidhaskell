@@ -12,7 +12,7 @@ import Language.Fixpoint.Misc (errorstar)
 
 import Data.List              (sort)
 
-import Paths_liquidhaskell
+import Paths_liquidhaskell_core
 
 firstDuplicate :: Ord a => [a] -> Maybe a
 firstDuplicate = go . sort
@@ -127,4 +127,12 @@ intToString 1 = "1st"
 intToString 2 = "2nd"
 intToString 3 = "3rd"
 intToString n = show n ++ "th"
+
+split :: Eq a => a -> [a] -> [[a]]
+split c s = cons (case break (== c) s of
+  (l, s') -> (l, case s' of
+    []    -> []
+    _:s'' -> split c s''))
+  where
+    cons ~(h, t) =  h : t
 

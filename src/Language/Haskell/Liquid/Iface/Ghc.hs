@@ -8,6 +8,7 @@ module Language.Haskell.Liquid.Iface.Ghc (
 
     -- * Functions Extracted from GHC
   , bindIfaceTyVar
+  , bindIfaceTyVars
   , tcIfaceTyCon
   ) where
 
@@ -27,7 +28,9 @@ import Id
 import IfaceEnv
 import IfaceType
 import Kind
+import Module
 import Name
+import NameEnv
 import Outputable
 import PrelInfo
 import TcEnv
@@ -38,10 +41,13 @@ import TcRnTypes
 import TyCon
 import Type
 import TypeRep
+import TysPrim
 import UniqFM
 import UniqSupply
 import Unique
 import Var
+
+import Control.Monad
 
 import Data.Array
 import Data.Bits
@@ -56,10 +62,19 @@ import Data.Word
 
 tcRnIfL :: Module -> IfL a -> TcM a
 tcRnIfL mod act = do
-  typeEnvRef <- tcg_type_env_var <$> getGblEnv
-  typeEnv    <- liftIO $ readIORef typeEnvRef
+  typeEnv <- getModTypeEnv mod
   initIfaceTc (emptyModIface mod) $ \ref ->
     liftIO (writeIORef ref typeEnv) >> act
+
+getModTypeEnv :: Module -> TcM TypeEnv
+getModTypeEnv mod = do
+  top <- getTopEnv
+  gbl <- getGblEnv
+  if tcg_mod gbl == mod
+     then liftIO $ readIORef $ tcg_type_env_var gbl
+     else case lookupHptByModule (hsc_HPT top) mod of
+            Just hmi -> return $ md_types $ hm_details hmi
+            Nothing  -> eps_PTE <$> liftIO (readIORef $ hsc_EPS top)
 
 --------------------------------------------------------------------------------
 -- Interface File Wrapping -----------------------------------------------------
@@ -167,6 +182,20 @@ bindIfaceTyVar (occ,kind) thing_inside
         ; tyvar <- mk_iface_tyvar name kind
         ; extendIfaceTyVarEnv [tyvar] (thing_inside tyvar) }
 
+bindIfaceTyVars :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
+bindIfaceTyVars bndrs thing_inside
+  = do { names <- newIfaceNames (map mkTyVarOccFS occs)
+        ; let (kis_kind, tys_kind) = span isSuperIfaceKind kinds
+              (kis_name, tys_name) = splitAt (length kis_kind) names
+          -- We need to bring the kind variables in scope since type
+          -- variables may mention them.
+        ; kvs <- zipWithM mk_iface_tyvar kis_name kis_kind
+        ; extendIfaceTyVarEnv kvs $ do
+        { tvs <- zipWithM mk_iface_tyvar tys_name tys_kind
+        ; extendIfaceTyVarEnv tvs (thing_inside (kvs ++ tvs)) } }
+  where
+    (occs,kinds) = unzip bndrs
+
 fromOnDiskName :: Array Int Name -> NameCache -> OnDiskName -> (NameCache, Name)
 fromOnDiskName _ nc (pid, mod_name, occ) =
     let mod   = mkModule pid mod_name
@@ -191,6 +220,10 @@ getSymbolTable bh ncu = do
 
 initBinMemSize :: Int
 initBinMemSize = 1024 * 1024
+
+isSuperIfaceKind :: IfaceKind -> Bool
+isSuperIfaceKind (IfaceTyConApp tc ITC_Nil) = ifaceTyConName tc == superKindTyConName
+isSuperIfaceKind _ = False
 
 knownKeyNamesMap :: UniqFM Name
 knownKeyNamesMap = listToUFM_Directly [(nameUnique n, n) | n <- knownKeyNames]

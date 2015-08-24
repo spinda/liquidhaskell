@@ -82,6 +82,8 @@ import Data.Monoid (mappend)
 import           Language.Fixpoint.Names      (symSepName, isSuffixOfSym, singletonSym)
 import qualified Language.Fixpoint.Types      as F
 
+import           Language.Haskell.Liquid.Misc
+
 
 #if __GLASGOW_HASKELL__ < 710
 import Language.Haskell.Liquid.Desugar.HscMain
@@ -187,10 +189,12 @@ isFractionalClass clas = classKey clas `elem` fractionalClassKeys
 ------------------ Generic Helpers for DataConstructors ---------------
 -----------------------------------------------------------------------
 
-isDataConId id = case idDetails id of
-                  DataConWorkId _ -> True
-                  DataConWrapId _ -> True
-                  _               -> False
+isDataConId id
+  | isId id = case idDetails id of
+    DataConWorkId _ -> True
+    DataConWrapId _ -> True
+    _               -> False
+  | otherwise = False
 
 getDataConVarUnique v
   | isId v && isDataConId v = getUnique $ idDataCon v
@@ -264,7 +268,9 @@ sDocDoc   = PJ.text . showSDoc
 pprDoc    = sDocDoc . ppr
 
 -- Overriding Outputable functions because they now require DynFlags!
-showPpr       = showSDoc . ppr
+showPpr       = showSDoc      . ppr
+showPprDump   = showSDocDump  . ppr
+showPprDebug  = showSDocDebug . ppr
 
 -- FIXME: somewhere we depend on this printing out all GHC entities with
 -- fully-qualified names...
@@ -301,6 +307,9 @@ instance Show CoreExpr where
 locatedSrcSpan     :: F.Located a -> SrcSpan
 locatedSrcSpan (F.Loc loc locE _) = mkSrcSpan (sourcePosSrcLoc loc) (sourcePosSrcLoc locE)
 
+srcSpanLocated     :: SrcSpan -> a -> F.Located a
+srcSpanLocated span val = F.Loc (srcSpanSourcePos span) (srcSpanSourcePosE span) val
+
 sourcePosSrcSpan   :: SourcePos -> SrcSpan
 sourcePosSrcSpan = srcLocSpan . sourcePosSrcLoc
 
@@ -310,6 +319,9 @@ sourcePosSrcLoc p = mkSrcLoc (fsLit file) line col
     file          = sourceName p
     line          = sourceLine p
     col           = sourceColumn p
+
+mkSrcSpan' :: SourcePos -> SourcePos -> SrcSpan
+mkSrcSpan' s e = mkSrcSpan (sourcePosSrcLoc s) (sourcePosSrcLoc e)
 
 srcSpanSourcePos :: SrcSpan -> SourcePos
 srcSpanSourcePos (UnhelpfulSpan _) = dummyPos "LH.GhcMisc.srcSpanSourcePos"
@@ -460,8 +472,9 @@ instance Symbolic Var where
 
 varSymbol ::  Var -> Symbol
 varSymbol v
-  | us `isSuffixOfSym` vs = vs
-  | otherwise             = vs `mappend` singletonSym symSepName `mappend` us
+  | not (isExportedId v) && not (us `isSuffixOfSym` vs) =
+    vs `mappend` singletonSym symSepName `mappend` us
+  | otherwise = vs
   where us  = symbol $ showPpr $ getDataConVarUnique v
         vs  = symbol $ getName v
 
@@ -496,6 +509,12 @@ tyThingDataCon_maybe _                          = Nothing
 tyThingTyCon_maybe :: TyThing -> Maybe TyCon
 tyThingTyCon_maybe (ATyCon x) = Just x
 tyThingTyCon_maybe _          = Nothing
+
+
+recordSelectorDataCon :: Id -> DataCon
+recordSelectorDataCon id = case recordSelectorFieldLabel id of
+  (tc, field) -> safeFromJust "recordSelectorDataCon" $
+    L.find (elem field . dataConFieldLabels) (tyConDataCons tc)
 
 
 

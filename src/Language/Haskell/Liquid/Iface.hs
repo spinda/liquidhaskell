@@ -109,26 +109,27 @@ putTargetIface cache path ifaceData = do
 
 rewriteWiredMod :: Config -> Module -> TcPluginM Module
 rewriteWiredMod cfg mod
-  | not (noGhcPrimSpecs cfg) && pkg == primPackageKey = mkWiredModule mod "liquid-ghc-prim"
-  | not (noBaseSpecs    cfg) && pkg == basePackageKey = mkWiredModule mod "liquid-base"
-  | otherwise                                         = return mod
+  | not (noWiredInSpecs cfg) && hasWiredInSpecs pkg = findWiredModule mod
+  | otherwise                                       = return mod
   where
     pkg = modulePackageKey mod
 
-mkWiredModule :: Module -> String -> TcPluginM Module
-mkWiredModule mod name = do
-  dflags         <- hsc_dflags <$> getTopEnv
-  let Just config = lookupPackage dflags pkg
-  let strPkgId    = name ++ '-' : showVersion (packageVersion config)
-  let srcPkgId    = SourcePackageId $ mkFastString strPkgId
-  let matches     = searchPackageId dflags srcPkgId
-  let pkg'        = case matches of
-        []        -> stringToPackageKey strPkgId
-        (match:_) -> packageKey match
-  let mod'        = mkModuleName $ "Liquid." ++ moduleNameString (moduleName mod)
-  return $ mkModule pkg' mod'
+hasWiredInSpecs :: PackageKey -> Bool
+hasWiredInSpecs = flip elem
+  [ primPackageKey
+  , basePackageKey
+  , integerPackageKey
+  ]
+
+findWiredModule :: Module -> TcPluginM Module
+findWiredModule mod = do
+  result <- findImportedModule wiredModName (Just wiredPkgName)
+  return $ case result of
+    Found _ mod' -> mod'
+    _            -> mod
   where
-    pkg = modulePackageKey mod
+    wiredModName = mkModuleName $ "Liquid." ++ moduleNameString (moduleName mod)
+    wiredPkgName = fsLit "liquidhaskell-std"
 
 --------------------------------------------------------------------------------
 -- IfaceCache Type Internals ---------------------------------------------------

@@ -17,10 +17,13 @@ import CoreSyn
 import DynFlags
 import GhcMonad
 import HscTypes
+import HsDecls
 import NameSet
 import Panic
+import RnSource
 import TcAnnotations
 import TcRnMonad
+import TcRnTypes
 import TysWiredIn
 import Var
 import VarEnv
@@ -29,10 +32,12 @@ import VarSet
 import Control.Arrow
 import Control.Monad
 
+import Data.IORef
 import Data.List
 import Data.Maybe
 
 import qualified Data.HashMap.Strict as M
+import qualified Data.HashSet        as S
 
 import System.Console.CmdArgs.Verbosity (whenLoud)
 
@@ -45,7 +50,8 @@ import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.Spec.Check
 import Language.Haskell.Liquid.Spec.CoreToLogic (strengthenResult)
 import Language.Haskell.Liquid.Spec.Extract
-import Language.Haskell.Liquid.Spec.WiredIns
+import Language.Haskell.Liquid.Spec.Expand
+import Language.Haskell.Liquid.Spec.Resolve
 
 --------------------------------------------------------------------------------
 -- Produce Module GhcSpec ------------------------------------------------------
@@ -54,58 +60,33 @@ import Language.Haskell.Liquid.Spec.WiredIns
 makeGhcSpec :: NameSet
             -> TypecheckedModule
             -> [Var]
+            -> [Var]
             -> [Annotation]
             -> [CoreBind]
             -> GhcSpec
             -> Ghc GhcSpec
-makeGhcSpec exports mod vs anns cbs scope = do
+makeGhcSpec exports mod vs letVs anns cbs scope = do
   let TcGblEnv{..} = fst $ tm_internals_ mod
 
-  anns'                                     <- (anns ++) <$> tcSigOfAnnotations mod
-  wiredIns                                  <- loadWiredIns
-  (exprParams, tcEmbeds, inlines, measures) <- runExtractM doExtract tcg_src scope anns' cbs
+  anns' <- (anns ++) <$> tcSigOfAnnotations mod
 
-  throwsGhc $ checkDupLogic (map fst inlines) (map fst measures)
-           ++ checkDupEmbeds tcEmbeds
-           ++ checkLocalEmbeds tcg_mod tcg_sig_of tcEmbeds
+  spec0 <- extractGhcSpec tcg_mod tcg_sig_of letVs anns' cbs
+  spec1 <- resolveGhcSpec spec0
+  spec2 <- expandGhcSpec scope spec1
 
-  -- TODO: Get rid of all this (wasteful) when merging ExtractM and ReifyM
-  let inlinesMap  = M.fromList $ map (first  val) inlines
-  let measuresMap = M.fromList $ map (first  val) measures
-  let embedsMap   = M.fromList $ map (second val) tcEmbeds
+  let measSet = S.fromList $ map val $ M.keys $ meas spec2
 
-  let inlinesMap'                            = M.union inlinesMap $ tinlines scope
-  let measuresMap'                           = M.union measuresMap $ meas scope
+  let modSpec  = spec2 { tySigs   = strengthenHaskellMeasures measSet $ tySigs   spec2
+                       , asmSigs  = strengthenHaskellMeasures measSet $ asmSigs  spec2
+                       , freeSyms = M.map (joinVar vs)                $ freeSyms spec2
+                       }
 
-  ((tySigs, ctors, tySyns), freeSyms)       <- runReifyM doReify wiredIns (rtEnv scope) exprParams inlinesMap' measuresMap'
-
-  let tySigs'                                = strengthenHaskellMeasures (mkVarSet $ M.keys measuresMap) tySigs
-  let freeSyms'                              = M.map (joinVar vs) freeSyms
-
-  let modSpec                                = mempty { tySigs   = M.map dummyLoc tySigs' -- TODO: Pull out location info
-                                                      , ctors    = M.map dummyLoc ctors
-                                                      , exports  = exports
-                                                      , tcEmbeds = embedsMap
-                                                      , freeSyms = freeSyms'
-                                                      , rtEnv    = tySyns
-                                                      , tinlines = inlinesMap
-                                                      , meas     = measuresMap
-                                                      }
-  let fullSpec                               = (mappend modSpec scope) { exports = exports }
+  let fullSpec = (mappend modSpec scope) { exports = exports }
 
   throwsGhc $ checkGhcSpec cbs fullSpec modSpec
 
   return fullSpec
-  where
-    doExtract = (,,,)
-      <$> extractExprParams
-      <*> extractTcEmbeds
-      <*> extractInlines
-      <*> extractMeasures
-    doReify = (,,)
-      <$> extractTySigs mod
-      <*> extractCtors  mod
-      <*> extractTySyns mod
+
 
 -- | GHC throws away annotations when typechecking a .hs-boot or .hsig file
 -- (hoping to get this fixed for 7.12). We need them, so hook in here to
@@ -114,13 +95,25 @@ tcSigOfAnnotations :: TypecheckedModule -> Ghc [Annotation]
 tcSigOfAnnotations mod
   | isHsBootOrSig source = do
     hscEnv <- getSession
-    liftIO $ initTcForLookup hscEnv $ tcAnnotations annDecls
+    liftIO $ do
+      extraDecls <- readIORef $ tcg_th_topdecls gblEnv
+      initTcForLookup hscEnv $ do
+        setGblEnv gblEnv $ do
+          (extraGroupRdr, _) <- findSplice $ filter isAnnDecl extraDecls
+          (_, extraGroupRn)  <- rnSrcDecls [] extraGroupRdr
+          tcAnnotations $ groupDecls ++ hs_annds extraGroupRn
   | otherwise = return []
   where
     source =
       ms_hsc_src $ pm_mod_summary $ tm_parsed_module mod
-    Just (HsGroup { hs_annds = annDecls }, _, _, _) =
+    gblEnv =
+      fst $ tm_internals_ mod
+    Just (HsGroup { hs_annds = groupDecls }, _, _, _) =
       tm_renamed_source mod
+    isAnnDecl decl = case unLoc decl of
+      AnnD{} -> True
+      _      -> False
+
 
 -- | The 'Var's we lookup in GHC don't always have the same 'TyVar's as the
 -- 'Var's we're given, so return the original 'Var' when possible.
@@ -129,12 +122,12 @@ tcSigOfAnnotations mod
 joinVar :: [Var] -> Var -> Var
 joinVar vs v = fromMaybe v $ find ((== showPpr v) . showPpr) vs
 
-strengthenHaskellMeasures :: VarSet -> M.HashMap Var SpecType -> M.HashMap Var SpecType
+strengthenHaskellMeasures :: S.HashSet Symbol -> M.HashMap Var (Located SpecType) -> M.HashMap Var (Located SpecType)
 strengthenHaskellMeasures meas = M.mapWithKey go
   where
     go var ty
-      | var `elemVarSet` meas = strengthenResult var ty
-      | otherwise             = ty
+      | varSymbol var `S.member` meas = strengthenResult var <$> ty
+      | otherwise                     = ty
 
 --------------------------------------------------------------------------------
 -- Post-Process GhcSpec --------------------------------------------------------

@@ -8,7 +8,7 @@ module Language.Haskell.Liquid.TH.Parse.Base (
   , runParser
 
     -- * Position Information
-  , located
+  , withSpan
 
     -- * Simplified Output
   , getSimplified
@@ -18,14 +18,16 @@ module Language.Haskell.Liquid.TH.Parse.Base (
   , withExprParams
   , isExprParam
 
-    -- * Free Type Variables
-  , collectFreeTyVars
-  , visitTyVar
+    -- * Convert Data to Exp
+  , dataToExpP
 
     -- * Identifier Parsers
   , fTyconP
   ) where
 
+import Control.Monad.Identity
+
+import Data.Data
 import Data.List
 import Data.Maybe
 
@@ -36,9 +38,11 @@ import Language.Haskell.TH.Syntax
 import Text.Parsec hiding (runParser, runParserT)
 import Text.Parsec.Pos
 
+import Language.Fixpoint.Types
+
 import Language.Haskell.Liquid.Parse
 
-import Language.Haskell.Liquid.TH.Encode
+import Language.Haskell.Liquid.TH.Misc
 import Language.Haskell.Liquid.TH.Types
 
 --------------------------------------------------------------------------------
@@ -49,13 +53,12 @@ type Parser = ParserT ParserState Q
 
 data ParserState = PS { ps_simplified :: Bool
                       , ps_exprParams :: S.HashSet String
-                      , ps_freeTyVars :: Maybe (S.HashSet String)
                       }
 
 runParser :: Bool -> Parser a -> String -> Q a
 runParser simplified p src = do
   loc    <- location
-  result <- runParserT p (PS simplified mempty Nothing) (locSourcePos loc) src
+  result <- runParserT p (PS simplified mempty) (locSourcePos loc) src
   case result of
     Left  err -> failWithError (loc_filename loc) err
     Right out -> return out
@@ -75,12 +78,10 @@ failWithError file err = do
 -- Position Information --------------------------------------------------------
 --------------------------------------------------------------------------------
 
-located :: Monad m => ParserT s m a -> ParserT s m (Located a)
-located p = do
-  s <- position
-  a <- p
-  e <- position -- TODO: End position minus whitespace!
-  return $ mkLocated s e a
+withSpan :: Parser a -> Parser (SourceSpan, a)
+withSpan p = do
+  x <- located p
+  return (locatedSpan x, val x)
 
 --------------------------------------------------------------------------------
 -- Simplified Output -----------------------------------------------------------
@@ -102,10 +103,10 @@ ifSimplified x y = do
 
 withExprParams :: [String] -> Parser a -> Parser a
 withExprParams params act = do
-  ps <- getP
-  putP $ ps { ps_exprParams = S.union (S.fromList params) (ps_exprParams ps) }
+  paramSet <- ps_exprParams <$> getP
+  modifyP $ \ps -> ps { ps_exprParams = S.union (S.fromList params) paramSet }
   result <- act
-  putP ps
+  modifyP $ \ps -> ps { ps_exprParams = paramSet }
   return result
 
 isExprParam :: String -> Parser Bool
@@ -114,32 +115,22 @@ isExprParam param = do
   return (param `S.member` params)
 
 --------------------------------------------------------------------------------
--- Free Type Variables ---------------------------------------------------------
+-- Convert Data to Exp ---------------------------------------------------------
 --------------------------------------------------------------------------------
 
-collectFreeTyVars :: Parser a -> Parser ([Name], a)
-collectFreeTyVars act = do
-  ps <- getP
-  putP $ ps { ps_freeTyVars = Just mempty }
-  result <- act
-  tvs <- map mkName . S.toList . fromJust . ps_freeTyVars <$> getP
-  putP ps
-  return (tvs, result)
-
-visitTyVar :: String -> Parser ()
-visitTyVar tv = modifyP $ \ps ->
-  ps { ps_freeTyVars = S.insert tv <$> ps_freeTyVars ps }
+dataToExpP :: Data a => a -> Parser Exp
+dataToExpP = liftP . dataToExpQ'
 
 --------------------------------------------------------------------------------
 -- Identifier Parsers ----------------------------------------------------------
 --------------------------------------------------------------------------------
 
 fTyconP :: Parser FTycon
-fTyconP = (FTcInt  <$ reserved "int")
-      <|> (FTcInt  <$ reserved "Integer")
-      <|> (FTcInt  <$ reserved "Int")
-      <|> (FTcInt  <$ reserved "int")
-      <|> (FTcReal <$ reserved "real")
-      <|> (FTcBool <$ reserved "bool")
-      <|> (FTcUser <$> conidP)
+fTyconP = (intFTyCon  <$ reserved "int")
+      <|> (intFTyCon  <$ reserved "Integer")
+      <|> (intFTyCon  <$ reserved "Int")
+      <|> (intFTyCon  <$ reserved "int")
+      <|> (realFTyCon <$ reserved "real")
+      <|> (boolFTyCon <$ reserved "bool")
+      <|> (symbolFTycon . fmap symbol <$> located conidP)
 

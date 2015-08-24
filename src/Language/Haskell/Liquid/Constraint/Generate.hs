@@ -230,9 +230,9 @@ predsUnify sp = second (addTyConInfo tce tyi) -- needed to eliminate some @RProp
 
 measEnv sp xts cbs lts asms hs autosizes
   = CGE { loc   = noSrcSpan
-        , renv  = fromListREnv $ ((val . name) &&& sort) <$> M.elems (meas sp)
+        , renv  = fromListREnv $ ((val . fst) &&& (sort . snd)) <$> M.toList (meas sp)
         , syenv = F.fromListSEnv $ M.toList $ freeSyms sp -- TODO: This is  wasteful; expose a HashMap constructor for SEnv from Fixpoint
-        , fenv  = initFEnv $ lts ++ (((val . name) &&& (rTypeSort tce . sort)) <$> M.elems (meas sp))
+        , fenv  = initFEnv $ lts ++ (((val . fst) &&& (rTypeSort tce . sort . snd)) <$> M.toList (meas sp))
         , denv  = dicts sp
         , recs  = S.empty
         , invs  = mkRTyConInv    $ (invariants sp ++ autosizes)

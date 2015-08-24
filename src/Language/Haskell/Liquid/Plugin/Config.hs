@@ -5,7 +5,7 @@ module Language.Haskell.Liquid.Plugin.Config (
 
 import GHC
 
-import GhcPlugins hiding (char, comma, brackets)
+import GhcPlugins hiding (brackets, char, comma, parens)
 import Panic
 
 import Control.Monad
@@ -42,7 +42,7 @@ parsePluginOpts opts =
     act   = configP defaultConfig
     start = newPos "plugin options" 0 0
     src   = filter (/= '\n') $ intercalate "," $ reverse opts
-    usage = "\n\nFor usage information, see: https://github.com/ucsd-progsys/liquidhaskell"
+    usage = "\n\nFor usage information, see https://github.com/ucsd-progsys/liquidhaskell"
 
 --------------------------------------------------------------------------------
 -- Internal Parser -------------------------------------------------------------
@@ -67,47 +67,46 @@ optionP cfg = do
         fn <$> parser
 
   case key of
-    ""                  -> return cfg
+    "" -> return cfg
 
-    "verbose"           -> noArg $ cfg { verbose        = True }
-    "real"              -> noArg $ cfg { real           = True }
-    "native"            -> noArg $ cfg { native         = True }
-    "no-verify"         -> noArg $ cfg { noVerify       = True }
-    "no-write-iface"    -> noArg $ cfg { noWriteIface   = True }
-    "no-check-unknown"  -> noArg $ cfg { noCheckUnknown = True }
-    "no-termination"    -> noArg $ cfg { notermination  = True }
-    "no-warnings"       -> noArg $ cfg { nowarnings     = True }
-    "trust-internals"   -> noArg $ cfg { trustinternals = True }
-    "no-case-expand"    -> noArg $ cfg { nocaseexpand   = True }
-    "strata"            -> noArg $ cfg { strata         = True }
-    "notruetypes"       -> noArg $ cfg { notruetypes    = True }
-    "totality"          -> noArg $ cfg { totality       = True }
-    "no-prune"          -> noArg $ cfg { noPrune        = True }
-    "short-names"       -> noArg $ cfg { shortNames     = True }
-    "short-errors"      -> noArg $ cfg { shortErrors    = True }
-    "no-ghc-prim-specs" -> noArg $ cfg { noGhcPrimSpecs = True }
-    "no-base-specs"     -> noArg $ cfg { noBaseSpecs    = True }
+    "verbose"              -> noArg $ cfg { verbose           = True }
+    "real"                 -> noArg $ cfg { real              = True }
+    "native"               -> noArg $ cfg { native            = True }
+    "no-verify"            -> noArg $ cfg { noVerify          = True }
+    "no-write-iface"       -> noArg $ cfg { noWriteIface      = True }
+    "no-check-unknown"     -> noArg $ cfg { noCheckUnknown    = True }
+    "no-termination"       -> noArg $ cfg { notermination     = True }
+    "no-warnings"          -> noArg $ cfg { nowarnings        = True }
+    "trust-internals"      -> noArg $ cfg { trustinternals    = True }
+    "no-case-expand"       -> noArg $ cfg { nocaseexpand      = True }
+    "strata"               -> noArg $ cfg { strata            = True }
+    "notruetypes"          -> noArg $ cfg { notruetypes       = True }
+    "totality"             -> noArg $ cfg { totality          = True }
+    "no-prune"             -> noArg $ cfg { noPrune           = True }
+    "short-names"          -> noArg $ cfg { shortNames        = True }
+    "short-errors"         -> noArg $ cfg { shortErrors       = True }
+    "no-wired-in-specs"    -> noArg $ cfg { noWiredInSpecs    = True }
 
-    "diffcheck"         -> noArg $
+    "diffcheck" -> noArg $
       cfg { diffcheck = True
           , fullcheck = False
           }
-    "fullcheck"         -> noArg $
+    "fullcheck" -> noArg $
       cfg { diffcheck = False
           , fullcheck = True
           }
 
-    "binders"           ->
-      arg (brackets $ sepBy varidP comma) $ \bndrs ->
+    "binders" ->
+      arg (brackets $ sepBy (parens operator <|> varidP) comma) $ \bndrs ->
         cfg { binders = bndrs ++ binders cfg }
-    "max-params"        ->
+    "max-params" ->
       arg natural' $ \max ->
         cfg { maxParams = max }
-    "smt-solver"        ->
+    "smt-solver" ->
       arg smtSolver $ \smt ->
         cfg { smtsolver = Just smt }
 
-    _                   -> failAt pos $ "unrecognized flag '" ++ key ++ "'"
+    _ -> failAt pos $ "unrecognized flag '" ++ key ++ "'"
 
 --------------------------------------------------------------------------------
 -- Check/Resolve Config --------------------------------------------------------
