@@ -67,6 +67,7 @@ logicKindP :: Parser LogicKind
 logicKindP = (InlineKind  <$ reserved "inline")
          <|> (BoundKind   <$ reserved "bound")
          <|> (MeasureKind <$ reserved "measure")
+         <|> (QualifKind  <$ reserved "qualif")
 
 --------------------------------------------------------------------------------
 -- Data Declarations -----------------------------------------------------------

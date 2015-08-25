@@ -96,7 +96,7 @@ prune cfg cbinds target info
 
 solveCs :: Config -> FilePath -> CGInfo -> GhcInfo -> Maybe DC.DiffCheck -> IO (Output Doc)
 solveCs cfg target cgi info dc
-  = do finfo    <- cgInfoFInfo info cgi
+  = do let finfo = targetFInfo info cgi
        Result r sol <- solve fx finfo
        let names = checkedNames dc
        let warns = logErrors cgi
@@ -196,6 +196,8 @@ instance PPrint GhcSpec where
               $$ (pprintLongList $ M.toList $ ctors spec)
               $$ (text "******* Measure Specifications **************")
               $$ (pprintLongList $ M.toList $ meas spec)
+              $$ (text "******* Qualifiers *****************************")
+              $$ (pprintLongList $ M.elems $ qualifiers spec)
 
 instance PPrint [CoreBind] where
   pprint = pprDoc . tidyCBs

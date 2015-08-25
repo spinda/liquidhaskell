@@ -80,5 +80,6 @@ data LogicKind
   = InlineKind
   | BoundKind
   | MeasureKind
+  | QualifKind
   deriving (Data, Typeable)
 

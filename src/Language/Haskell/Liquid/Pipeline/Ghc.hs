@@ -92,9 +92,7 @@ getGhcInfo cfg scope hsFile summary = handleErrors $ do
   setContext [IIModule $ moduleName $ ms_mod summary']
   spec               <- makeGhcSpec (mgi_exports modguts) typechecked (impVs ++ defVs) letVs (mg_anns $ dm_core_module desugared) coreBinds scope
 
-  hqualFiles         <- liftIO $ moduleHquals hsFile
-
-  return              $ GI cfg hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs hqualFiles [] [] spec
+  return              $ GI cfg hscEnv coreBinds derVs impVs (letVs ++ datacons) useVs [] [] spec
 
 handleErrors :: Ghc a -> Ghc a
 handleErrors act = act
@@ -184,15 +182,4 @@ getGhcModGuts1 desugared =
 
 getDerivedDictionaries :: ModGuts -> [ClsInst]
 getDerivedDictionaries = instEnvElts . mg_inst_env
-
---------------------------------------------------------------------------------
--- Extracting Qualifiers -------------------------------------------------------
---------------------------------------------------------------------------------
-
--- TODO: Remove separate .hquals files
-moduleHquals :: FilePath -> IO [FilePath]
-moduleHquals target
-  = do hqs <- filterM doesFileExist [extFileName Hquals target]
-       whenLoud $ putStrLn $ "Reading Qualifiers From: " ++ show hqs
-       return hqs
 

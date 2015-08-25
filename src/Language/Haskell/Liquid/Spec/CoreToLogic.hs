@@ -177,7 +177,7 @@ coreToPred (C.Var x)
   | x == trueDataConId
   = return PTrue
   | eqType boolTy (varType x)
-  = return $ PBexp $ EApp (dummyLoc propConName) [(EVar $ symbol x)]
+  = return $ PBexp $ EVar $ symbol x -- $ EApp (dummyLoc propConName) [(EVar $ symbol x)]
 coreToPred p@(C.App _ _) = toPredApp p  
 coreToPred e
   = PBexp <$> coreToLogic e  
@@ -247,12 +247,15 @@ toLogicApp e
   =  do let (f, es) = splitArgs e
         args       <- mapM coreToLogic es
         lmap       <- symbolMap <$> getState
-        def         <- (`EApp` args) <$> tosymbol0 f
+        def        <- (`EApp` args) <$> tosymbol0 f
         (\x -> makeApp def lmap x args) <$> tosymbol' f
 
 makeApp :: Expr -> LogicMap -> Located Symbol-> [Expr] -> Expr
-makeApp _ _ f [e] | val f == symbol ("GHC.Num.negate" :: String)
-  = ENeg e
+makeApp _ _ f [e]
+  | val f == symbol ("GHC.Num.negate" :: String)
+    = ENeg e
+  | val f == symbol ("GHC.Num.fromInteger" :: String)
+    = e
 
 makeApp _ _ f [e1, e2] | Just op <- M.lookup (val f) bops
   = EBin op e1 e2

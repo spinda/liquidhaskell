@@ -360,7 +360,6 @@ data GhcInfo = GI {
   , impVars  :: ![Var]
   , defVars  :: ![Var]
   , useVars  :: ![Var]
-  , hqFiles  :: ![FilePath]
   , imports  :: ![String]
   , includes :: ![FilePath]
   , spec     :: !GhcSpec
@@ -384,7 +383,7 @@ data GhcSpec = SP {
                                                           -- eg. (Cons, Cons#7uz) from tests/pos/ex1.hs
   , tcEmbeds   :: !(TCEmb TyCon)                          -- ^ How to embed GHC Tycons into fixpoint sorts
                                                           -- e.g. "embed Set as Set_set" from include/Data/Set.spec
-  , qualifiers :: ![Qualifier]                            -- ^ Qualifiers in Source/Spec files
+  , qualifiers :: !(M.HashMap Var Qualifier)              -- ^ Qualifiers in Source/Spec files
                                                           -- e.g tests/pos/qualTest.hs
   , tgtVars    :: ![Var]                                  -- ^ Top-level Binders To Verify (empty means ALL binders)
   , decr       :: ![(Var, [Int])]                         -- ^ Lexicographically ordered size witnesses for termination
@@ -1571,6 +1570,11 @@ data TError t =
                    , dsc :: !Doc
                    , msg :: !Doc
                    } -- ^ Lift-to-logic error
+
+  | ErrQualifType { pos :: !SrcSpan
+                  , var :: !Doc
+                  , typ :: !t
+                  } -- ^ Lift-to-logic error
 
   | ErrUnbound  { pos :: !SrcSpan
                 , var :: !Doc

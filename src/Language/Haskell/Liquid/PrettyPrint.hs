@@ -100,6 +100,9 @@ instance Show Predicate where
 instance PPrint FTycon where
   pprint = pprint . val . fTyconSymbol
 
+instance PPrint Qualifier where
+  pprint = toFix
+
 instance PPrint TH.Name where
   pprint = text . show
 

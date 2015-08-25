@@ -1,6 +1,6 @@
 module Language.Haskell.Liquid.Constraint.ToFixpoint (
 
-        cgInfoFInfo
+        targetFInfo
 
         ) where
 
@@ -18,12 +18,6 @@ import           Data.Monoid
 import Language.Haskell.Liquid.Qualifier
 import Language.Haskell.Liquid.GhcMisc          ( varSymbol )
 import Language.Haskell.Liquid.RefType          ( rTypeSortedReft )
-
-cgInfoFInfo :: GhcInfo -> CGInfo -> IO (F.FInfo Cinfo)
-cgInfoFInfo info cgi = do
-  let tgtFI = targetFInfo info cgi
-  impFI    <- parseFInfo $ hqFiles info
-  return    $ tgtFI <> impFI
 
 targetFInfo :: GhcInfo -> CGInfo -> F.FInfo Cinfo
 targetFInfo info cgi
@@ -44,7 +38,7 @@ targetFInfo info cgi
 targetQuals :: GhcInfo -> [F.Qualifier]
 targetQuals info = spcQs ++ genQs
   where
-    spcQs     = qualifiers $ spec info
+    spcQs     = M.elems $ qualifiers $ spec info
     genQs     = specificationQualifiers n info
     n         = maxParams $ config info
 

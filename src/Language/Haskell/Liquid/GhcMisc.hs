@@ -478,6 +478,9 @@ varSymbol v
   where us  = symbol $ showPpr $ getDataConVarUnique v
         vs  = symbol $ getName v
 
+plainVarSymbol :: Var -> Symbol
+plainVarSymbol = symbol . qualifiedNameSymbol . getName
+
 
 qualifiedNameSymbol n = symbol $
   case nameModule_maybe n of

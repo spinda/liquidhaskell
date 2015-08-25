@@ -91,7 +91,7 @@ instance Iface GhcSpec IfaceSpec where
        , ifaceIAliases   = ofIAlias <$> ialiases
        , ifaceFreeSyms   = second getName <$> M.toList freeSyms
        , ifaceTcEmbeds   = first toIfaceTyCon <$> M.toList tcEmbeds
-       , ifaceQualifiers = qualifiers
+       , ifaceQualifiers = first getName <$> filter isExported (M.toList qualifiers)
        , ifaceTyConEnv   = ofTyConEnv <$> M.toList tyconEnv
        , ifaceRTEnv      = ofRTAlias <$> M.toList rtEnv
        , ifaceTInlines   = first getName <$> filter isExported (M.toList tinlines)
@@ -114,6 +114,7 @@ instance Iface GhcSpec IfaceSpec where
     ialiases   <- mapM ofIAlias ifaceIAliases
     freeSyms   <- M.fromList <$> mapM (secondM lookupIfaceVar) ifaceFreeSyms
     tcEmbeds   <- M.fromList <$> mapM (firstM tcIfaceTyCon) ifaceTcEmbeds
+    qualifiers <- M.fromList <$> mapM (firstM lookupIfaceVar) ifaceQualifiers
     tyconEnv   <- M.fromList <$> mapM ofTyConEnv ifaceTyConEnv
     rtEnv      <- M.fromList <$> mapM ofRTAlias ifaceRTEnv
     tinlines   <- M.fromList <$> mapM (firstM lookupIfaceVar) ifaceTInlines
@@ -126,7 +127,7 @@ instance Iface GhcSpec IfaceSpec where
       , ialiases   = ialiases
       , freeSyms   = freeSyms
       , tcEmbeds   = tcEmbeds
-      , qualifiers = ifaceQualifiers
+      , qualifiers = qualifiers
       , tyconEnv   = tyconEnv
       , rtEnv      = rtEnv
       , tinlines   = tinlines

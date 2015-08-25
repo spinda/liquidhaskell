@@ -244,6 +244,11 @@ ppError' _ dSp (ErrLiftToLogic _ v d s)
   = dSp <+> text "Cannot promote Haskell function" <+> v <+> text "to logic" <+> d
     $+$ (nest 4 $ pprint s)
 
+ppError' _ dSp (ErrQualifType _ v t)
+  = dSp <+> text "Cannot create a qualifier from" <+> v <> colon
+        <+> text "qualifier functions must return Bool"
+    $+$ (nest 4 $ text "Type:" <+> pprint t)
+
 ppError' _ dSp (ErrDupSpecs _ v ls)
   = dSp <+> text "Multiple Specifications for" <+> pprint v <> colon
     $+$ (nest 4 $ vcat $ pprint <$> ls)

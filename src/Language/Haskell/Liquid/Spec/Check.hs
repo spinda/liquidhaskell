@@ -135,11 +135,13 @@ checkReft mkErr emb env (Just ty) _ =
 -- Duplication Checking --------------------------------------------------------
 --------------------------------------------------------------------------------
 
-checkDupLogic :: [LocSymbol] -> [LocSymbol] -> [Error]
-checkDupLogic inlines meas = map mkErr ds
+checkDupLogic :: [Located Var] -> [LocSymbol] -> [Located Var] -> [Error]
+checkDupLogic inlines measures qualifiers = map mkErr ds
   where
     ds = dupsBy ((==) `on` snd) (compare `on` snd) ls
-    ls = map ("inline", ) inlines ++ map ("measure", ) meas
+    ls = map (("inline", ) . fmap varSymbol) inlines
+      ++ map ("measure", ) measures
+      ++ map (("qualifier", ) . fmap varSymbol) qualifiers
 
     mkErr xs@((_, name):_) =
       ErrDupLogic (locatedSrcSpan name) (pprint $ val name) $

@@ -58,20 +58,21 @@ import Language.Haskell.Liquid.Spec.Reify
 -- Extract Specifications from Annotations -------------------------------------
 --------------------------------------------------------------------------------
 
-extractGhcSpec :: Module -> Maybe Module -> [Var] -> [Annotation] -> [CoreBind] -> Ghc GhcSpec
-extractGhcSpec mod sig letVs anns cbs = do
-  (tySigs', asmSigs', ctors') <- extractVarSpecs (isJust sig) letVs anns
-  rtEnv'                      <- extractSynSpecs anns
-  tcEmbeds'                   <- extractTcEmbeds mod sig anns
-  (tinlines', meas')          <- extractLiftedLogic anns cbs
+extractGhcSpec :: Module -> Maybe Module -> [Var] -> [Annotation] -> [CoreBind] -> GhcSpec -> Ghc GhcSpec
+extractGhcSpec mod sig letVs anns cbs scope = do
+  (tySigs', asmSigs', ctors')     <- extractVarSpecs (isJust sig) letVs anns
+  rtEnv'                          <- extractSynSpecs anns
+  tcEmbeds'                       <- extractTcEmbeds mod sig anns
+  (tinlines', meas', qualifiers') <- extractLiftedLogic (mappend tcEmbeds' $ tcEmbeds scope) anns cbs
   return $
-    mempty { tySigs   = tySigs'
-           , asmSigs  = asmSigs'
-           , ctors    = ctors'
-           , rtEnv    = rtEnv'
-           , tcEmbeds = tcEmbeds'
-           , tinlines = tinlines'
-           , meas     = meas'
+    mempty { tySigs     = tySigs'
+           , asmSigs    = asmSigs'
+           , ctors      = ctors'
+           , rtEnv      = rtEnv'
+           , tcEmbeds   = tcEmbeds'
+           , tinlines   = tinlines'
+           , meas       = meas'
+           , qualifiers = qualifiers'
            }
 
 
@@ -120,46 +121,65 @@ extractTcEmbeds mod sig anns = do
       tc <- lookupGhcTyCon $ spanLocated span name
       return (tc, ftc)
 
-extractLiftedLogic :: [Annotation]
+extractLiftedLogic :: TCEmb TyCon
+                   -> [Annotation]
                    -> [CoreBind]
                    -> Ghc ( M.HashMap Var TInline
                           , M.HashMap LocSymbol SpecMeasure
+                          , M.HashMap Var Qualifier
                           )
-extractLiftedLogic anns cbs = do
-  (inlines, measures) <- foldM ofAnn ([],[]) $ annotationsOfType anns
-  throwsGhc $ checkDupLogic (map (fmap varSymbol . fst) inlines) (map fst measures)
+extractLiftedLogic tce anns cbs = do
+  (inlines, measures, qualifiers) <- foldM ofAnn ([],[],[]) $ annotationsOfType anns
+  throwsGhc $ checkDupLogic (fst <$> inlines) (fst <$> measures) (fst <$> qualifiers)
   return ( M.fromList $ map (first val) inlines
          , M.fromList measures
+         , M.fromList $ map (first val) qualifiers
          )
   where
     coreEnv = buildCoreEnv cbs
 
-    ofAnn (inlines, measures) (name, LiftToLogic kind span) = do
+    ofAnn (inlines, measures, qualifiers) (name, LiftToLogic kind span) = do
       var          <- lookupGhcVar $ spanLocated span name
-      let sym       = spanLocated span $ varSymbol var
+      let sym       = spanLocated span $ plainVarSymbol var
       let Just bind = lookupVarEnv coreEnv var
 
       let liftToLogic dsc tx = case runToLogic mempty $ tx sym var bind of
             Left  res -> return res
-            Right err -> throwGhc $ mkErr span var dsc err
+            Right err -> throwGhc $ liftErr span var dsc err
 
       case kind of
         InlineKind  -> do
           ti <- mkInline <$> liftToLogic "measure" coreToFun
-          return ((spanLocated span var, ti) : inlines, measures)
+          return ((spanLocated span var, ti) : inlines, measures, qualifiers)
         BoundKind   -> error "extractLiftedLogic: lifting bounds not yet implemented"
         MeasureKind -> do
           me <- mkMeasure var <$> liftToLogic "inline" coreToDef
-          return (inlines, (sym, me) : measures)
+          return (inlines, (sym, me) : measures, qualifiers)
+        QualifKind -> do
+          qu <- mkQualifier var sym =<< liftToLogic "qualifier" coreToFun
+          return (inlines, measures, (spanLocated span var, qu) : qualifiers)
 
     mkInline (xs, e) =
       TI (symbol <$> xs) e
     mkMeasure var defs =
       M (logicType $ varType var) (dataConTypes defs)
 
-    mkErr :: SourceSpan -> Var -> String -> String -> Error
-    mkErr (SourceSpan start end) var dsc err =
+    mkQualifier _ sym (xs, Left p) =
+      return $ Q (val sym) (mkQualParam <$> xs) (mkQualBody xs p) (loc sym)
+    mkQualifier var sym (_, Right _) =
+      throwGhc $ qualErr var sym
+    mkQualBody xs p =
+      subst (mkSubst $ map (symbol &&& (EVar . plainVarSymbol)) xs) p
+    mkQualParam x =
+      (plainVarSymbol x, typeSort tce $ varType x)
+
+    liftErr :: SourceSpan -> Var -> String -> String -> Error
+    liftErr (SourceSpan start end) var dsc err =
       ErrLiftToLogic (mkSrcSpan' start end) (pprint var) (text dsc) (text err)
+
+    qualErr :: Var -> LocSymbol -> Error
+    qualErr var sym =
+      ErrQualifType (locatedSrcSpan sym) (pprint var) (ofType $ varType var)
 
 --------------------------------------------------------------------------------
 -- Utility Functions -----------------------------------------------------------

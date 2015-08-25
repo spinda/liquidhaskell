@@ -70,7 +70,7 @@ makeGhcSpec exports mod vs letVs anns cbs scope = do
 
   anns' <- (anns ++) <$> tcSigOfAnnotations mod
 
-  spec0 <- extractGhcSpec tcg_mod tcg_sig_of letVs anns' cbs
+  spec0 <- extractGhcSpec tcg_mod tcg_sig_of letVs anns' cbs scope
   spec1 <- resolveGhcSpec spec0
   spec2 <- expandGhcSpec scope spec1
 

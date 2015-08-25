@@ -154,7 +154,27 @@ uTop r          = U r mempty mempty
 
 instance Monoid GhcSpec where
   mempty =
-    SP mempty mempty mempty mempty [] [] mempty mempty [] [] [] [] mempty mempty mempty mempty mempty mempty mempty mempty
+    SP { tySigs     = mempty
+       , asmSigs    = mempty
+       , ctors      = mempty
+       , meas       = mempty
+       , invariants = mempty
+       , ialiases   = mempty
+       , freeSyms   = mempty
+       , tcEmbeds   = mempty
+       , qualifiers = mempty
+       , tgtVars    = mempty
+       , decr       = mempty
+       , texprs     = mempty
+       , lvars      = mempty
+       , lazy       = mempty
+       , autosize   = mempty
+       , tyconEnv   = mempty
+       , dicts      = mempty
+       , exports    = mempty
+       , rtEnv      = mempty
+       , tinlines   = mempty
+       }
   mappend sp1 sp2 =
     SP { tySigs     = mappend (tySigs     sp1) (tySigs     sp2)
        , asmSigs    = mappend (asmSigs    sp1) (asmSigs    sp2)
