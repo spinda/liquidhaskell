@@ -1,3 +1,5 @@
+-- TODO: missing specification for liquidAssertB
+
 module Range () where
 
 import Language.Haskell.Liquid.Prelude
