@@ -4,6 +4,7 @@ branches:
   only:
     - master
     - multiparams
+    - travis
 
 sudo: false
 
