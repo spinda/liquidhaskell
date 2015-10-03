@@ -5,6 +5,7 @@ branches:
   only:
     - master
     - multiparams
+    - travis-cache
 
 sudo: false
 
