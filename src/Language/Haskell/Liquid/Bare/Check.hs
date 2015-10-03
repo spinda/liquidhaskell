@@ -2,6 +2,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
+-- poke
+
 module Language.Haskell.Liquid.Bare.Check (
     checkGhcSpec
 
